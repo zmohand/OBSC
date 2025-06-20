@@ -44,11 +44,11 @@ function is_curtailment_possible(t_max::Int64, first_curtailment::Int64, last_cu
         return false
     end
 
-    if (last_curtailment - first_curtailment) > delta_max
+    if (last_curtailment - first_curtailment + 1) > delta_max
         return false
     end
 
-    if (last_curtailment - first_curtailment) < delta_min
+    if (last_curtailment - first_curtailment + 1) < delta_min
         return false
     end
 
@@ -62,7 +62,7 @@ function init_curtailments(t_max::Int64, delta::Int64, delta_min::Int64, delta_m
     sequence_id = 1
 
     # Parcours tous les curtailments possibles (avec niveau de décharge) et les rajoute dans l'ensemble de sommets
-    for first_c = 0:t_max
+    for first_c = 1:t_max
         for last_c = first_c:t_max
             if is_curtailment_possible(t_max, first_c, last_c, delta_min, delta_max)
                 for d_lvl in discharge_levels
@@ -241,4 +241,11 @@ function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::I
 end
 
 
-init_graph(t_max=5, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 0.5, discharge_max = 0.8, p_TSO = 0.2, p_b = 2.0, p_max = 3.0, w = [1.0, 0.85, 0.85, 0.85, 1.0], b_max= 180.0, b_min = 60.0)
+
+
+
+open("resultat.txt", "w") do f
+    redirect_stdout(f) do
+        init_graph(t_max=5, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 0.5, discharge_max = 0.8, p_TSO = 0.2, p_b = 2.0, p_max = 3.0, w = [1.0, 0.85, 0.85, 0.85, 1.0], b_max= 180.0, b_min = 60.0)
+    end
+end
