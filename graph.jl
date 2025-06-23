@@ -203,15 +203,34 @@ function is_arc_possible(t_max::Int64, c1::Vertex, c2::Vertex, delta::Int64, p_b
 
 end
 
-# Fonction qui va calculer le poids des arcs (TODO)
-function calcul_weight_arcs()
-    return 0
+# Fonction qui calcule le f_c_B (cout de recharge de la batterie)
+function calcul_battery_charge_cost(energy_cost::Array{Float64}, t_max::Int64, delta::Int64, curtailment::Vertex, p_b::Float64, p_max::Float64, w::Array{Float64})
 
+    somme = 0
+    t_c_b = calcul_t_c_b(t_max, curtailment, delta, p_b, p_max, w)
+    for i = (curtailment.curtailment_end+1):(t_c_b - 1)
+        somme = somme + (energy_cost[i] - energy_cost[t_c_b])*min(p_b, p_max - w[i])
+    end
+
+    return energy_cost[t_c_b]*curtailment.discharge/delta + somme
+end
+
+
+# Fonction qui calcule G'(t) MODE OTR(TODO), ref page 982 pour changer en mode FTR
+function calcul_g_prime(energy_cost::Array{Float64}, reward::Array{Float64}, delta::Int64, time::Int64)
+    return (energy_cost[time] + reward[time])/delta
+end
+
+
+# Fonction qui va calculer le poids des arcs (Fonction cout)
+function calcul_weight_arcs(energy_cost::Array{Float64}, t_max::Int64, delta::Int64, curtailment::Vertex, p_b::Float64, p_max::Float64, w::Array{Float64})
+    battery_charge_cost = calcul_battery_charge_cost(energy_cost, t_max, delta, curtailment, p_b, p_max, w)
+    
 end
 
 
 # Fonction qui va renvoyer l'ensemble des arcs du graphe
-function init_arcs(vertex_array::Array{Vertex}, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64, t_max::Int64)
+function init_arcs(energy_cost::Array{Float64} ,vertex_array::Array{Vertex}, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64, t_max::Int64)
     n = length(vertex_array)
     arcs_array = [Vector{Arc}() for _ in 1:n]
 
@@ -220,7 +239,7 @@ function init_arcs(vertex_array::Array{Vertex}, delta::Int64, p_b::Float64, p_ma
         for s_prime in vertex_array
             if is_arc_possible(t_max, s, s_prime, delta, p_b, p_max, w, p_TSO, discharge_min, discharge_max, b_max, b_min)
                 # WEIGHT A CHANGER
-                push!(arcs_array[s.id], Arc(s, s_prime, calcul_weight_arcs())) 
+                push!(arcs_array[s.id], Arc(s, s_prime, calcul_weight_arcs(energy_cost, t_max, delta, s_prime, p_b, p_max, w))) 
             end 
         end
     end
