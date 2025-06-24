@@ -221,6 +221,23 @@ function calcul_g_prime(energy_cost::Array{Float64}, reward::Array{Float64}, del
     return (energy_cost[time] + reward[time])/delta
 end
 
+# Fonction qui va calculer l'ensemble L (ref preuve théorème 1 page 982)
+function calcul_array_L(energy_cost::Array{Float64}, reward::Array{Float64}, delta::Int64, curtailment::Vertex)
+    L_temp = Vector{Tuple{Float64, Int64}}()
+    for i = curtailment.curtailment_start:curtailment.curtailment_end
+        push!(L_temp, (calcul_g_prime(energy_cost, reward, delta, i), i))
+    end
+
+    return [i for (_, i) in L_temp]
+
+end
+
+# Fonction qui calculer le i* (ref théorème 1 page 984)
+function calcul_i_star(l_set::Array{Int64}, curtailment::Vertex)
+    index = 1
+    value = 
+
+end
 
 # Fonction qui va calculer le poids des arcs (Fonction cout)
 function calcul_weight_arcs(energy_cost::Array{Float64}, t_max::Int64, delta::Int64, curtailment::Vertex, p_b::Float64, p_max::Float64, w::Array{Float64})
