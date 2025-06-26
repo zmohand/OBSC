@@ -214,7 +214,7 @@ function calcul_battery_charge_cost(energy_cost::Array{Float64}, t_max::Int64, d
     for i = (curtailment.curtailment_end+1):(t_c_b - 1)
         somme = somme + (energy_cost[i] - energy_cost[t_c_b])*min(p_b, p_max - w[i])
     end
-    println("Prob t_c_b ?", t_c_b, " t_max : ", t_max, " c_start :", curtailment.curtailment_start, " c_end : ", curtailment.curtailment_end)
+    #println("Prob t_c_b ?", t_c_b, " t_max : ", t_max, " c_start :", curtailment.curtailment_start, " c_end : ", curtailment.curtailment_end)
     return energy_cost[t_c_b]*curtailment.discharge/delta + somme
 end
 
@@ -265,8 +265,9 @@ function calcul_i_star(l_set::Array{Int64}, curtailment::Vertex, preced_curtailm
             d_t_min(delta, l_set[i], w, discharge_min, p_c_max)
         end for i in 1:index)
 
-    while (curtailment.discharge >= value)
+    while (curtailment.discharge >= value && (index < length(l_set)))
         index = index + 1
+        #println("index ? :", index, " c start:", curtailment.curtailment_end, "c end ?", curtailment.curtailment_end)
         value = d_min(curtailment, delta, w, discharge_min, p_c_max) + sum(
         begin
             d_t_max(delta, l_set[i], w, discharge_max) -
@@ -313,9 +314,9 @@ end
 # Fonction qui va calculer le poids des arcs (Fonction cout)
 function calcul_weight_arcs(energy_cost::Array{Float64}, reward::Array{Float64}, w::Array{Float64}, t_max::Int64, delta::Int64, curtailment::Vertex,preced_curtailment::Vertex, p_b::Float64, p_max::Float64, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, dummy::Bool)
     battery_charge_cost = calcul_battery_charge_cost(energy_cost, t_max, delta, curtailment, p_b, p_max, w)
-    println("BATTERY COST CHARGING : ", battery_charge_cost)
+    #println("BATTERY COST CHARGING : ", battery_charge_cost)
     saving_from_curtailment = calcul_saving_from_curtailment(curtailment, preced_curtailment, energy_cost, reward, w, delta, p_b, p_max, p_TSO, t_max, discharge_min, discharge_max, dummy)
-    println("SAVING FROM C: ", saving_from_curtailment)
+    #println("SAVING FROM C: ", saving_from_curtailment)
     return saving_from_curtailment - battery_charge_cost
 end
 
@@ -331,7 +332,7 @@ function init_arcs(energy_cost::Array{Float64} ,vertex_array::Array{Vertex}, del
             if is_arc_possible(t_max, s, s_prime, delta, p_b, p_max, w, p_TSO, discharge_min, discharge_max, b_max, b_min)
                 # WEIGHT A CHANGER
                 weight = calcul_weight_arcs(energy_cost, reward, w, t_max, delta, s_prime, s, p_b, p_max, p_TSO, discharge_min, discharge_max, false)
-                println("WEIGHT EN SORTIE : ", weight)
+                #println("WEIGHT EN SORTIE : ", weight)
                 push!(arcs_array[s.id], Arc(s, s_prime, weight)) 
             end 
         end
