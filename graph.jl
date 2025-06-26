@@ -9,7 +9,7 @@ end
 struct Arc
     curtailment_A :: Vertex
     curtailment_B :: Vertex
-    weight :: Int64
+    weight :: Float64
 end
 
 struct Graph
@@ -40,7 +40,7 @@ function is_curtailment_possible(t_max::Int64, first_curtailment::Int64, last_cu
         return false
     end
 
-    if (first_curtailment >= t_max || last_curtailment > t_max)
+    if (first_curtailment >= t_max || last_curtailment >= t_max)
         return false
     end
 
@@ -211,7 +211,7 @@ function calcul_battery_charge_cost(energy_cost::Array{Float64}, t_max::Int64, d
     for i = (curtailment.curtailment_end+1):(t_c_b - 1)
         somme = somme + (energy_cost[i] - energy_cost[t_c_b])*min(p_b, p_max - w[i])
     end
-
+    println("Prob t_c_b ?", t_c_b, " t_max : ", t_max, " c_start :", curtailment.curtailment_start, " c_end : ", curtailment.curtailment_end)
     return energy_cost[t_c_b]*curtailment.discharge/delta + somme
 end
 
@@ -337,6 +337,14 @@ function init_arcs(energy_cost::Array{Float64} ,vertex_array::Array{Vertex}, del
     return arcs_array
 end
 
+# Function to add the dummy curtailments
+function dummy_curtailment(vertex_array::Array{Vertex}, arcs_array::Array{Array{Arc, 1}}, t_max::Int64)
+    new_v_array = push(vertex_array, Vertex(length(vertex_array)+1, -1, -1, 0))
+    push!(new_v_array, Vertex())
+    new_a_array = push()
+end
+
+
 function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, energy_cost::Array{Float64}, reward::Array{Float64})
 
     discharge_levels_array = load_discharge_levels(b_max, b_min, discharge_precision)
@@ -355,6 +363,6 @@ end
 
 open("resultat.txt", "w") do f
     redirect_stdout(f) do
-        init_graph(t_max=5, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 0.5, discharge_max = 0.8, p_TSO = 0.2, p_b = 2.0, p_max = 3.0, b_max= 180.0, b_min = 60.0, w = [1.0, 0.85, 0.85, 0.85, 1.0], energy_cost= [30.0, 32.0, 16.0, 19.0, 20.0], reward=[15.0, 19.0, 38.2, 12.0, 3.0])
+        init_graph(t_max=5, delta=60, delta_min = 2, delta_max = 2, discharge_precision=1, discharge_min = 0.5, discharge_max = 0.8, p_TSO = 0.2, p_b = 2.0, p_max = 3.0, b_max= 180.0, b_min = 60.0, w = [1.0, 0.85, 0.85, 0.85, 1.0], energy_cost= [30.0, 32.0, 16.0, 19.0, 20.0], reward=[15.0, 19.0, 38.2, 12.0, 3.0])
     end
 end
