@@ -359,6 +359,10 @@ function dummy_curtailment(vertex_array::Array{Vertex}, arcs_array::Array{Array{
     # On rajoute de v_s à v_t
     push!(arcs_array[length(vertex_array) - 1], Arc(vertex_array[length(vertex_array) - 1], vertex_array[length(vertex_array)], 0))
 
+    start_vertex_id = length(vertex_array) - 1
+    end_vertex_id = length(vertex_array)
+
+    return start_vertex_id, end_vertex_id
 end
 
 
@@ -371,18 +375,91 @@ function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::I
     arcs_array = init_arcs(energy_cost, vertex_array, delta, p_b, p_max, w, p_TSO, discharge_min, discharge_max, b_max, b_min, t_max, reward)
 
     # On ajoute les dummy curtailment et leurs arcs
-    dummy_curtailment(vertex_array, arcs_array, t_max, energy_cost, delta, p_b, p_max, w, p_TSO, discharge_min, discharge_max, reward)
+    start_v_id, end_v_id = dummy_curtailment(vertex_array, arcs_array, t_max, energy_cost, delta, p_b, p_max, w, p_TSO, discharge_min, discharge_max, reward)
     #just for testing
     println(arcs_array)
-    return vertex_array, arcs_array
+    return vertex_array, arcs_array, start_v_id, end_v_id
 end
 
 
 
 
+# Tri topo + bellman
+function longest_path_dag(vertices::Vector{Vertex}, arcs::Vector{Vector{Arc}}, start_id::Int64)
+
+    ids = [v.id for v in vertices]          
+    adj = Dict(id => Arc[] for id in ids)         
+    indeg = Dict(id => 0    for id in ids)
+
+    for a in arcs
+        for elm in a
+            push!(adj[elm.curtailment_A.id], elm)
+            indeg[elm.curtailment_B.id] += 1
+        end
+    end
+
+    # tri topologique 
+    order = Int[]
+    q = [id for id in ids if indeg[id] == 0]
+    while !isempty(q)
+        u = popfirst!(q)
+        push!(order, u)
+        for a in adj[u]
+            v = a.curtailment_B.id
+            indeg[v] -= 1
+            indeg[v] == 0 && push!(q, v)
+        end
+    end
+
+    # Bellman
+    dist = Dict(id => -Inf for id in ids)
+    pred = Dict(id => 0 for id in ids)
+    dist[start_id] = 0.0
+
+    for u in order
+        for a in adj[u]
+            v = a.curtailment_B.id
+            cand = dist[u] + a.weight
+            if cand > dist[v]
+                dist[v] = cand
+                pred[v] = u
+            end
+        end
+    end
+    return dist, pred
+end
+
+# Fonction qui va retracer le plus long chemin (pour les tests)
+function trace_path(pred::Dict{Int64, Int64}, start_id::Int64, final_id::Int64, vertex_list::Array{Vertex})
+    result = []
+    pushfirst!(result, vertex_list[final_id])
+    current = pred[final_id]
+
+    while (current != start_id && current != 0)
+        pushfirst!(result, vertex_list[current])
+        current = pred[current]
+    end
+
+
+    pushfirst!(result, vertex_list[start_id])
+
+
+    return result
+
+
+end
+
 
 open("resultat.txt", "w") do f
     redirect_stdout(f) do
-        init_graph(t_max=5, delta=60, delta_min = 2, delta_max = 2, discharge_precision=1, discharge_min = 0.5, discharge_max = 0.8, p_TSO = 0.2, p_b = 2.0, p_max = 3.0, b_max= 180.0, b_min = 60.0, w = [1.0, 0.85, 0.85, 0.85, 1.0], energy_cost= [30.0, 32.0, 16.0, 19.0, 20.0], reward=[15.0, 19.0, 38.2, 12.0, 3.0])
+        v_array, a_array, start_id, end_id = init_graph(t_max=5, delta=60, delta_min = 2, delta_max = 2, discharge_precision=1, discharge_min = 0.5, discharge_max = 0.8, p_TSO = 0.2, p_b = 2.0, p_max = 3.0, b_max= 180.0, b_min = 60.0, w = [1.0, 0.85, 0.85, 0.85, 1.0], energy_cost= [30.0, 32.0, 16.0, 19.0, 20.0], reward=[15.0, 19.0, 38.2, 12.0, 3.0])
+        dist, pred = longest_path_dag(v_array, a_array, start_id)
+        println("Plus long chemin dans ce graphe : ", dist[end_id])
+        println("Chemin pour l'avoir :")
+        nodes_list = trace_path(pred, start_id, end_id, v_array)
+        for elm in nodes_list
+            println("Id : ", elm.id, " Début reduction : ", elm.curtailment_start, " Fin reduction :", elm.curtailment_end, " Déchargement associé : ", elm.discharge)
+        end
+
     end
 end
