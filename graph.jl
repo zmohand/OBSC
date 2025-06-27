@@ -19,8 +19,13 @@ end
 
 
 # Fonction qui va vérifier si une réduction donnée (f_c, l_c) est possible 
-function is_curtailment_possible(; t_max::Int64, first_curtailment::Int64, last_curtailment::Int64, delta_min::Int64, delta_max::Int64)
-    # Je separe chaque cas où la reduction n'est pas possible (c'est plus visible)
+function is_curtailment_possible(; t_max::Int64, first_curtailment::Int64, last_curtailment::Int64, delta_min::Int64, delta_max::Int64, t_c_b::Int64)
+    # Je separe chaque cas où la reduction n'est pas possible (c'est plus lisible)
+
+    if t_c_b == -1 
+        return false
+    end
+
     if (first_curtailment > last_curtailment)
         return false
     end
@@ -42,19 +47,21 @@ end
 
 
 #Fonction qui va génerer l'ensemble des sommets du graphe
-function init_curtailments(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_levels::Vector{Float64})
+function init_curtailments(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_levels::Vector{Float64}, p_b::Float64, p_max::Float64, w::Array{Float64})
     vertex_array = Array{Vertex}(undef, 0)
     sequence_id = 1
 
     # Parcours tous les curtailments possibles (avec niveau de décharge) et les rajoute dans l'ensemble de sommets
     for first_c = 1:t_max
         for last_c = first_c:t_max
-            if is_curtailment_possible(t_max = t_max, first_curtailment = first_c, last_curtailment = last_c, delta_min = delta_min, delta_max = delta_max)
-                for d_lvl in discharge_levels
+            for d_lvl in discharge_levels
+                t_c_b = calcul_t_c_b(t_max = t_max, c= Vertex(sequence_id, first_c, last_c, d_lvl), delta=delta, p_b = p_b, p_max = p_max, w = w)
+                if is_curtailment_possible(t_max = t_max, first_curtailment = first_c, last_curtailment = last_c, delta_min = delta_min, delta_max = delta_max, t_c_b = t_c_b)
                     push!(vertex_array, Vertex(sequence_id, first_c, last_c, d_lvl))
                     sequence_id = sequence_id + 1
                 end
             end
+        
         end
     end
 
@@ -69,7 +76,7 @@ function load_discharge_levels(; b_max::Float64, b_min::Float64, discharge_preci
     discharge_array = Array{Float64}(undef, 0)
     level = discharge_precision/100
 
-    while (level <= 1)
+    while (level < 1)
         curr_lvl = round(level*b_max)
 
         # Si cette décharge est bien "possible" on la met dans l'array
@@ -91,7 +98,10 @@ end
 # Fonction qui va calculer le t_c_b d'une réduction c en utilisant la "property 1" 
 function calcul_t_c_b(; t_max::Int64, c::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64})
     t_c_b = c.curtailment_end+1
-    
+    if t_c_b >= t_max
+        return -1
+    end
+
     reference_value = delta * sum(min(p_b, p_max - w[t]) for t in (c.curtailment_end+1):t_c_b)
 
     while reference_value < c.discharge
@@ -160,7 +170,7 @@ function calcul_bornes_d_c_j(; c1::Vertex, c2::Vertex, delta::Int64, p_b::Float6
         b_max - b_min
     )
 
-    #println("Bornes inf =", borne_inf, " et borne sup :", borne_sup)
+    println("Bornes inf =", borne_inf, " et borne sup :", borne_sup)
     return borne_inf, borne_sup
 end
 
@@ -168,22 +178,24 @@ end
 # Fonction qui va vérifier si un arc entre deux sommets est possible
 function is_arc_possible(; t_max::Int64, c1::Vertex, c2::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64)
    
-    t_c1_b = calcul_t_c_b( t_max = t_max, c = c1, delta = delta, p_b = p_b, p_max = p_max, w = w)
+    t_c1_b = calcul_t_c_b(t_max = t_max, c = c1, delta = delta, p_b = p_b, p_max = p_max, w = w)
     # Cas où on sort des bornes
-    println("Premier test")
+    println("Test 1")
     if t_c1_b == -1
         return false
     end
-    println("Deuxieme test")
+    println("Test 2")
 
     # Cas où la deuxieme reduction commence avant que la batterie ne se recharge
     if (t_c1_b >= c2.curtailment_start)
         return false
     end
-    println("Troisieme test")
+    println("Test 3")
+
 
     # Il faut maintenant calculer les bornes sup et inf pour d_c_2
     borne_inf, borne_sup = calcul_bornes_d_c_j(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max)
+    println("Borne supx = ", borne_sup, " borne_inf :" , borne_inf)
     if c2.discharge < borne_inf || c2.discharge > borne_sup
         return false
     end
@@ -203,13 +215,15 @@ function calcul_battery_charge_cost(; energy_cost::Array{Float64}, t_max::Int64,
     for i in (curtailment.curtailment_end+1):(t_c_b - 1)
         somme = somme + (energy_cost[i] - energy_cost[t_c_b])*min(p_b, p_max - w[i])
     end
+
+    
     #println("Prob t_c_b ?", t_c_b, " t_max : ", t_max, " c_start :", curtailment.curtailment_start, " c_end : ", curtailment.curtailment_end)
     return energy_cost[t_c_b]*curtailment.discharge/delta + somme
 end
 
 
 # Fonction qui calcule G'(t) MODE OTR(TODO), ref page 982 pour changer en mode FTR
-function calcul_g_prime(; energy_cost::Array{Float64}, reward::Array{Float64}, delta::Int64, time::Int64, OTR::Bool=false)
+function calcul_g_prime(; energy_cost::Array{Float64}, reward::Array{Float64}, delta::Int64, time::Int64, OTR::Bool=true)
     if OTR
         return (energy_cost[time] + reward[time])/delta
     else
@@ -320,7 +334,7 @@ end
 function init_arcs(; energy_cost::Array{Float64} ,vertex_array::Array{Vertex}, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64, t_max::Int64, reward::Array{Float64})
     n = length(vertex_array)
     arcs_array = [Vector{Arc}() for _ in 1:n]
-
+    println(vertex_array)
     # On regarde tous les sommets, si on peut mettre un arc entre 2 sommets on le met
     for s in vertex_array
         for s_prime in vertex_array
@@ -366,7 +380,7 @@ function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::I
 
     discharge_levels_array = load_discharge_levels(b_max = b_max, b_min = b_min, discharge_precision = discharge_precision)
 
-    vertex_array = init_curtailments(t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max, discharge_levels = discharge_levels_array)
+    vertex_array = init_curtailments(t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max, discharge_levels = discharge_levels_array, p_b = p_b, p_max = p_max, w = w)
     
     arcs_array = init_arcs(energy_cost = energy_cost, vertex_array = vertex_array, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max, reward = reward)
 
@@ -448,7 +462,7 @@ end
 
 open("resultat.txt", "w") do f
     redirect_stdout(f) do
-        v_array, a_array, start_id, end_id = init_graph(t_max=24, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 1.45, discharge_max = 14.5, p_TSO = 5.315, p_b = 6.38, p_max = 31.89, b_max= 106.33, b_min = 53.165, w = [12.0, 10.0, 8.4, 7.6, 6.8, 6.4, 6.4, 7.6, 8.4, 9.2, 9.6, 10.0, 10.4, 10.4, 10.8, 11.2, 11.28, 12.0, 12.4, 12.8, 12.8, 14.0, 14.4, 14.0]
+       v_array, a_array, start_id, end_id = init_graph(t_max=24, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 1.45, discharge_max = 14.5, p_TSO = 5.315, p_b = 6.38, p_max = 31.89, b_max= 200.33, b_min = 53.165, w = [12.0, 10.0, 8.4, 7.6, 6.8, 6.4, 6.4, 7.6, 8.4, 9.2, 9.6, 10.0, 10.4, 10.4, 10.8, 11.2, 11.28, 12.0, 12.4, 12.8, 12.8, 14.0, 14.4, 14.0]
 , energy_cost = [
     29.32, 26.21, 23.61, 21.04, 21.62, 26.54, 32.89, 38.30,
     34.68, 39.43, 38.31, 37.30, 35.89, 34.41, 32.17, 31.04,
@@ -459,6 +473,7 @@ reward = [
     45.30, 59.51, 58.26, 57.00, 51.00, 46.05, 42.61, 40.97,
     46.96, 49.06, 42.67, 41.37, 40.20, 41.15, 43.13, 41.81
 ])
+        println(v_array)
         dist, pred = longest_path_dag(v_array, a_array, start_id)
         println("Plus long chemin dans ce graphe : ", dist[end_id])
         println("Chemin pour l'avoir :")
