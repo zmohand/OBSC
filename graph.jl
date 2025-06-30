@@ -170,7 +170,7 @@ function calcul_bornes_d_c_j(; c1::Vertex, c2::Vertex, delta::Int64, p_b::Float6
         b_max - b_min
     )
 
-    println("Bornes inf =", borne_inf, " et borne sup :", borne_sup)
+    # println("Bornes inf =", borne_inf, " et borne sup :", borne_sup)
     return borne_inf, borne_sup
 end
 
@@ -180,26 +180,26 @@ function is_arc_possible(; t_max::Int64, c1::Vertex, c2::Vertex, delta::Int64, p
    
     t_c1_b = calcul_t_c_b(t_max = t_max, c = c1, delta = delta, p_b = p_b, p_max = p_max, w = w)
     # Cas où on sort des bornes
-    println("Test 1")
+    # println("Test 1")
     if t_c1_b == -1
         return false
     end
-    println("Test 2")
+    # println("Test 2")
 
     # Cas où la deuxieme reduction commence avant que la batterie ne se recharge
     if (t_c1_b >= c2.curtailment_start)
         return false
     end
-    println("Test 3")
+    # println("Test 3")
 
 
     # Il faut maintenant calculer les bornes sup et inf pour d_c_2
     borne_inf, borne_sup = calcul_bornes_d_c_j(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max)
-    println("Borne supx = ", borne_sup, " borne_inf :" , borne_inf)
+    # println("Borne supx = ", borne_sup, " borne_inf :" , borne_inf)
     if c2.discharge < borne_inf || c2.discharge > borne_sup
         return false
     end
-    println("4eme test")
+    # println("4eme test")
 
     # Si tout est bon, alors l'arc est possible
     return true
@@ -341,7 +341,7 @@ function init_arcs(; energy_cost::Array{Float64} ,vertex_array::Array{Vertex}, d
             if is_arc_possible(t_max = t_max, c1 = s, c2 = s_prime, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min)
                 # WEIGHT A CHANGER
                 weight = calcul_weight_arcs(energy_cost = energy_cost, reward = reward, w = w, t_max = t_max, delta = delta, curtailment = s_prime, preced_curtailment = s, p_b = p_b, p_max = p_max, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, dummy = false)
-                println("Weight : ", weight)
+                # println("Weight : ", weight)
                 #println("WEIGHT EN SORTIE : ", weight)
                 push!(arcs_array[s.id], Arc(s, s_prime, weight)) 
             end 
@@ -462,18 +462,18 @@ end
 
 open("resultat.txt", "w") do f
     redirect_stdout(f) do
-       v_array, a_array, start_id, end_id = init_graph(t_max=24, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 1.45, discharge_max = 14.5, p_TSO = 5.315, p_b = 6.38, p_max = 31.89, b_max= 200.33, b_min = 53.165, w = [12.0, 10.0, 8.4, 7.6, 6.8, 6.4, 6.4, 7.6, 8.4, 9.2, 9.6, 10.0, 10.4, 10.4, 10.8, 11.2, 11.28, 12.0, 12.4, 12.8, 12.8, 14.0, 14.4, 14.0]
-, energy_cost = [
-    29.32, 26.21, 23.61, 21.04, 21.62, 26.54, 32.89, 38.30,
-    34.68, 39.43, 38.31, 37.30, 35.89, 34.41, 32.17, 31.04,
-    31.55, 35.29, 38.60, 39.22, 37.34, 34.96, 35.36, 34.65
-], 
-reward = [
-    39.66, 36.30, 30.15, 11.51,  1.07,  0.70, 13.90, 46.51,
-    45.30, 59.51, 58.26, 57.00, 51.00, 46.05, 42.61, 40.97,
-    46.96, 49.06, 42.67, 41.37, 40.20, 41.15, 43.13, 41.81
-])
+       v_array, a_array, start_id, end_id = init_graph(t_max=6, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 1.00, discharge_max = 5.0, p_TSO = 1.0, p_b = 2.0, p_max = 10.0, b_max= 100.0, b_min = 20.0, w = [10.0, 12.0, 11.0, 10.0, 9.0, 8.0]
+, energy_cost = [25.0, 28.0, 27.0, 26.0, 29.0, 30.0], 
+reward = [20.0, 50.0, 0.0, 0.0, 60.0, 30.0]) 
         println(v_array)
+        index = 1
+        for v in a_array
+            println(" à partir du sommet : ", v_array[index])
+            for elm in v
+                println("Arc de : ", elm.curtailment_A, " à : ", elm.curtailment_B, " avec poids :" , elm.weight)
+            end
+            index = index + 1
+        end
         dist, pred = longest_path_dag(v_array, a_array, start_id)
         println("Plus long chemin dans ce graphe : ", dist[end_id])
         println("Chemin pour l'avoir :")
