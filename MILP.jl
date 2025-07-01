@@ -1,5 +1,5 @@
 using JuMP
-using CPLEX
+using GLPK
 
 
 struct curtailment
@@ -41,8 +41,7 @@ function init_c_t(; time_max::Int64, curtailments_set::Vector{curtailment})
 end
 
 
-model = Model(CPLEX.Optimizer)
-
+model = Model(GLPK.Optimizer)
 t = 5
 delta_min = 1
 delta_max = 2
@@ -126,12 +125,12 @@ possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_cur
 @constraint(model, [i=1:t], u_B[i] <= ((1 - z[i]) * min(p_B, p_max - w[i])))
 
 # (36)
-@constraint(model, [i=1:t], (b_max / delta - x[i] / delta - min(p_b, p_max - w[i])) 
+@constraint(model, [i=1:t], (b_max / delta - x[i] / delta - min(p_B, p_max - w[i])) 
     <= ( max(p_max, b_max/delta)*lin_side[i])            
 )
 
 # (37)
-@constraint(model, [i=1:t], ( min(p_b, p_max - w[i]) - b_max/delta + x[i]/delta)
+@constraint(model, [i=1:t], ( min(p_B, p_max - w[i]) - b_max/delta + x[i]/delta)
     <= ( max(p_max, b_max/delta)*(1-lin_side[i]) )
 )
 
@@ -142,7 +141,7 @@ possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_cur
 
 # (39)
 @constraint(model, [i=1:t], u_B[i]
-    >= ( (1-z[i])*min(p_b, p_max-w[i]) - max(p_max, b_max/delta)*(1-lin_side[i]) )
+    >= ( (1-z[i])*min(p_B, p_max-w[i]) - max(p_max, b_max/delta)*(1-lin_side[i]) )
 )
 
 # (13)
@@ -156,52 +155,55 @@ possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_cur
 )
 
 # (41)
-@constraint(model, [c in possible_curtailments], ( p_c_max[c] )
-    >= (( (sum(w[j] for j in (c.start_c - 1):c.end_c) + x[c.start_c]/delta - x[c.start_c-1]/delta)
-        / (c.end_c - c.start_c + 2) ) - p_TSO
-    )
+@constraint(model,
+    [c in possible_curtailments],
+    p_c_max[c] >= (
+        (sum(w[j] for j in max(1, c.start_c-1):c.end_c)   # évite j = 0
+         +  x[c.start_c]/delta
+         -  (c.start_c == 1 ? b_max : x[c.start_c-1]/delta))  # évite x[0]
+        / (c.end_c - c.start_c + 2) - p_TSO)
 )
 
 # (42)
-@constraint(model, [c in possible_curtailments], ( ( (sum(w[j] for j in (c.start_c - 1):c.end_c) + x[c.start_c]/delta - x[c.start_c-1]/delta)
+@constraint(model, [c in possible_curtailments], ( ( (sum(w[j] for j in (max(1, c.start_c - 1)):c.end_c) + x[c.start_c]/delta - (c.start_c == 1 ? b_max : x[c.start_c-1]/delta))
         / (c.end_c - c.start_c + 2) ) - p_TSO ) 
         <= ( 2*p_max*lin_sidepmax_c[c] )
 )
 
 # (43)
 @constraint(model, [c in possible_curtailments], 
-    (-((sum(w[j] for j in (c.start_c - 1):c.end_c) + x[c.start_c]/delta - x[c.start_c-1]/delta) / (c.end_c - c.start_c + 2)) + p_TSO)
+    (-((sum(w[j] for j in (max(1, c.start_c - 1)):c.end_c) + x[c.start_c]/delta - (c.start_c == 1 ? b_max : x[c.start_c-1]/delta)) / (c.end_c - c.start_c + 2)) + p_TSO)
     <= (2*p_max*(1-lin_sidepmax_c[c]))
 )
 
 # (44)
 @constraint(model, [c in possible_curtailments],
     p_c_max[c]
-    <= (((sum(w[j] for j in (c.start_c - 1):c.end_c) + x[c.start_c]/delta - x[c.start_c-1]/delta) / (c.end_c - c.start_c + 2)) -p_TSO + 2*p_max*(1-lin_sidepmax_c[c]))
+    <= (((sum(w[j] for j in (max(1, c.start_c - 1)):c.end_c) + x[c.start_c]/delta - (c.start_c == 1 ? b_max : x[c.start_c-1]/delta)) / (c.end_c - c.start_c + 2)) -p_TSO + 2*p_max*(1-lin_sidepmax_c[c]))
 )
 
 # (45)
 @constraint(model, [c in possible_curtailments], p_c_max[c] <= (2*p_max*lin_sidepmax_c[c]))
 
 # (46)
-@constraint(model, [c in possible_curtailments, i=1:t], lin_xy[i, c] <= (y[c]*b_max))
+@constraint(model, [c in possible_curtailments, i=1:t], lin_xy[i, c] <= (y_c[c]*b_max))
 
 # (47)
 @constraint(model, [c in possible_curtailments, i=1:t], lin_xy[i, c] <= x[i])
 
 # (48)
 @constraint(model, [c in possible_curtailments, i=1:t], lin_xy[i, c] 
-    >= ( x[i] - (1-y[c])*b_max)
+    >= ( x[i] - (1-y_c[c])*b_max)
 )
 
 # (49)
-@constraint(model, [c in possible_curtailments], lin_ypmax_c[c] <= (y[c]*p_max))
+@constraint(model, [c in possible_curtailments], lin_ypmax_c[c] <= (y_c[c]*p_max))
 
 # (50)
 @constraint(model, [c in possible_curtailments], lin_ypmax_c[c] <= p_c_max[c])
 
 # (51)
-@constraint(model, [c in possible_curtailments], lin_ypmax_c[c] <= (p_c_max[c] - (1 - y[c])*p_max))
+@constraint(model, [c in possible_curtailments], lin_ypmax_c[c] <= (p_c_max[c] - (1 - y_c[c])*p_max))
 
 
 
@@ -219,7 +221,6 @@ optimize!(model)
 status = termination_status(model)
 if status == MOI.OPTIMAL
     println("Solution optimale trouvée :")
-    
 else
     println("Pas de solution optimale (status : $status)")
 end
