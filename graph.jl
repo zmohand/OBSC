@@ -462,9 +462,9 @@ end
 
 open("resultat.txt", "w") do f
     redirect_stdout(f) do
-       v_array, a_array, start_id, end_id = init_graph(t_max=6, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 1.00, discharge_max = 5.0, p_TSO = 1.0, p_b = 2.0, p_max = 10.0, b_max= 100.0, b_min = 20.0, w = [10.0, 12.0, 11.0, 10.0, 9.0, 8.0]
-, energy_cost = [25.0, 28.0, 27.0, 26.0, 29.0, 30.0], 
-reward = [20.0, 50.0, 0.0, 0.0, 60.0, 30.0]) 
+       v_array, a_array, start_id, end_id = init_graph(t_max=6, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 0.3, discharge_max = 0.6, p_TSO = 0.8, p_b = 2.0, p_max = 4.4, b_max= 150.0, b_min = 42.0, w = [1.0, 1.8, 2.0, 1.8, 1.4, 0.8]
+, energy_cost = [60.0, 60.0, 30.0, 70.0, 70.0, 30.0], 
+reward = [40.0, 30.0, 40.0, 25.0, 30.0, 15.0]) 
         println(v_array)
         index = 1
         for v in a_array

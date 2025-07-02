@@ -1,5 +1,8 @@
 using JuMP
 using GLPK
+using MathOptInterface
+using HiGHS
+
 
 
 struct curtailment
@@ -41,25 +44,25 @@ function init_c_t(; time_max::Int64, curtailments_set::Vector{curtailment})
 end
 
 
-model = Model(GLPK.Optimizer)
-t = 5
+model = Model(HiGHS.Optimizer)
+t = 6
 delta_min = 1
 delta_max = 2
 
 
-w = [11.0, 17.0, 12.0, 11.3, 14.2]
-energy_cost = [23.0, 12.0, 13.0, 15.0, 10.0]
-reward = [4.0, 5.0, 3.4, 3.9, 5.0]
-p_max = 20
-p_B = 3.0
-p_TSO = 1.0
-b_min = 30.0
-b_max = 45.0
+w = [1.0, 1.8, 2.0, 1.8, 1.4, 0.8]
+energy_cost = [60.0, 60.0, 30.0, 70.0, 70.0, 30.0]
+reward = [40.0, 30.0, 40.0, 25.0, 30.0, 15.0]
+p_max = 4.4
+p_B = 2.0
+p_TSO = 0.8
+b_min = 42.0
+b_max = 150.0
 
 delta = 60
 
-discharge_max = 5.0
-discharge_min = 1.0
+discharge_max = 0.6
+discharge_min = 0.3
 
 possible_curtailments = init_curtailments(time_max = t, delta_min = delta_min, delta_max = delta_max)
 
@@ -67,13 +70,15 @@ possible_curtailments = init_curtailments(time_max = t, delta_min = delta_min, d
 
 possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_curtailments)
 
+println("Possible curtailments :", possible_curtailments)
+
+println("Possible curtailments in t", possible_curtailments_t)
 # les variables et contraintes sur les variables
 
 @variable(model, u_D[1:t] >= 0)
 @constraint(model, [i=1:t], u_D[i] <= w[i])
 
-@variable(model, u_B[1:t] >= 0)
-@constraint(model, [i=1:t], u_B[i] <= p_B)
+@variable(model, 0 <= u_B[1:t] <= p_B)
 
 @variable(model, b_min <= x[1:(t+1)] <= b_max)
 
@@ -102,7 +107,7 @@ possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_cur
 @constraint(model, [i=1:t], ( x[i] - x[i+1] ) <= (delta * discharge_max * z[i]))
 
 # (7)
-@constraint(model, [i=1:t], ( -x[i] + x[i+1] ) >= ( b_max - b_min )*(1 - z[i]))
+@constraint(model, [i=1:t], ( -x[i] + x[i+1] ) <= ( b_max - b_min )*(1 - z[i]))
 
 # (8)
 @constraint(model, [i=1:t], ( x[i] - x[i+1] ) >= ( delta * min(w[i], discharge_min)*z[i] - delta*p_B*(1-z[i])))
@@ -116,7 +121,6 @@ possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_cur
 # (11)
 @constraint(model, x[1] == x[t+1])
 @constraint(model, x[t+1] == b_max)
-@constraint(model, x[1] == b_max)
 
 # (34)
 @constraint(model, [i=1:t],( delta * u_B[i] ) <= ( b_max - x[i] - z[i]*b_max + sum(lin_xy[i, j] for j in possible_curtailments_t[i]) ))
@@ -125,12 +129,12 @@ possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_cur
 @constraint(model, [i=1:t], u_B[i] <= ((1 - z[i]) * min(p_B, p_max - w[i])))
 
 # (36)
-@constraint(model, [i=1:t], (b_max / delta - x[i] / delta - min(p_B, p_max - w[i])) 
+@constraint(model, [i=1:t], ((b_max / delta) - (x[i] / delta) - min(p_B, p_max - w[i])) 
     <= ( max(p_max, b_max/delta)*lin_side[i])            
 )
 
 # (37)
-@constraint(model, [i=1:t], ( min(p_B, p_max - w[i]) - b_max/delta + x[i]/delta)
+@constraint(model, [i=1:t], ( min(p_B, p_max - w[i]) - (b_max/delta) + (x[i]/delta))
     <= ( max(p_max, b_max/delta)*(1-lin_side[i]) )
 )
 
@@ -159,27 +163,27 @@ possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_cur
     [c in possible_curtailments],
     p_c_max[c] >= (
         (sum(w[j] for j in max(1, c.start_c-1):c.end_c)   # évite j = 0
-         +  x[c.start_c]/delta
-         -  (c.start_c == 1 ? b_max : x[c.start_c-1]/delta))  # évite x[0]
+         +  (x[c.start_c]/delta)
+         -  (c.start_c == 1 ? (b_max/delta) : (x[c.start_c-1]/delta)))  # évite x[0]
         / (c.end_c - c.start_c + 2) - p_TSO)
 )
 
 # (42)
-@constraint(model, [c in possible_curtailments], ( ( (sum(w[j] for j in (max(1, c.start_c - 1)):c.end_c) + x[c.start_c]/delta - (c.start_c == 1 ? b_max : x[c.start_c-1]/delta))
+@constraint(model, [c in possible_curtailments], ( ( (sum(w[j] for j in (max(1, c.start_c - 1)):c.end_c) + (x[c.start_c]/delta) - (c.start_c == 1 ? (b_max/delta) : (x[c.start_c-1]/delta)))
         / (c.end_c - c.start_c + 2) ) - p_TSO ) 
         <= ( 2*p_max*lin_sidepmax_c[c] )
 )
 
 # (43)
 @constraint(model, [c in possible_curtailments], 
-    (-((sum(w[j] for j in (max(1, c.start_c - 1)):c.end_c) + x[c.start_c]/delta - (c.start_c == 1 ? b_max : x[c.start_c-1]/delta)) / (c.end_c - c.start_c + 2)) + p_TSO)
+    (-((sum(w[j] for j in (max(1, c.start_c - 1)):c.end_c) + (x[c.start_c]/delta) - (c.start_c == 1 ? (b_max/delta) : (x[c.start_c-1]/delta))) / (c.end_c - c.start_c + 2)) + p_TSO)
     <= (2*p_max*(1-lin_sidepmax_c[c]))
 )
 
 # (44)
 @constraint(model, [c in possible_curtailments],
     p_c_max[c]
-    <= (((sum(w[j] for j in (max(1, c.start_c - 1)):c.end_c) + x[c.start_c]/delta - (c.start_c == 1 ? b_max : x[c.start_c-1]/delta)) / (c.end_c - c.start_c + 2)) -p_TSO + 2*p_max*(1-lin_sidepmax_c[c]))
+    <= (((sum(w[j] for j in (max(1, c.start_c - 1)):c.end_c) + (x[c.start_c]/delta) - (c.start_c == 1 ? (b_max/delta) : (x[c.start_c-1]/delta))) / (c.end_c - c.start_c + 2)) -p_TSO + 2*p_max*(1-lin_sidepmax_c[c]))
 )
 
 # (45)
@@ -203,7 +207,7 @@ possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_cur
 @constraint(model, [c in possible_curtailments], lin_ypmax_c[c] <= p_c_max[c])
 
 # (51)
-@constraint(model, [c in possible_curtailments], lin_ypmax_c[c] <= (p_c_max[c] - (1 - y_c[c])*p_max))
+@constraint(model, [c in possible_curtailments], lin_ypmax_c[c] >= (p_c_max[c] - (1 - y_c[c])*p_max))
 
 
 
@@ -217,10 +221,23 @@ possible_curtailments_t = init_c_t(time_max = t, curtailments_set = possible_cur
 # 5. Résoudre
 optimize!(model)
 
+
 # 6. Vérifier le statut et récupérer les résultats
 status = termination_status(model)
-if status == MOI.OPTIMAL
-    println("Solution optimale trouvée :")
+println("Statut de terminaison : ", status)
+primal_status = JuMP.primal_status(model)
+
+println("Statut de terminaison : ", status)
+println("Statut primal : ", primal_status)
+
+if primal_status in [JuMP.MOI.FEASIBLE_POINT, JuMP.MOI.NEARLY_FEASIBLE_POINT]
+    println("Solution (même si sous-optimale) :")
+    println("u_D = ", value.(u_D))
+    println("u_B = ", value.(u_B))
+    println("x   = ", value.(x))
+    println("z   = ", value.(z))
+    println("y_c = ", Dict(c => value(y_c[c]) for c in possible_curtailments if value(y_c[c]) > 0.5))
+    println("p_c_max = ", Dict(c => value(p_c_max[c]) for c in possible_curtailments if value(y_c[c]) > 0.5))
 else
-    println("Pas de solution optimale (status : $status)")
+    println("Aucune solution réalisable trouvée.")
 end
