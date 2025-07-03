@@ -55,7 +55,9 @@ function init_curtailments(; t_max::Int64, delta::Int64, delta_min::Int64, delta
     for first_c = 1:t_max
         for last_c = first_c:t_max
             for d_lvl in discharge_levels
+                
                 t_c_b = calcul_t_c_b(t_max = t_max, c= Vertex(sequence_id, first_c, last_c, d_lvl), delta=delta, p_b = p_b, p_max = p_max, w = w)
+                
                 if is_curtailment_possible(t_max = t_max, first_curtailment = first_c, last_curtailment = last_c, delta_min = delta_min, delta_max = delta_max, t_c_b = t_c_b)
                     push!(vertex_array, Vertex(sequence_id, first_c, last_c, d_lvl))
                     sequence_id = sequence_id + 1
@@ -98,7 +100,7 @@ end
 # Fonction qui va calculer le t_c_b d'une réduction c en utilisant la "property 1" 
 function calcul_t_c_b(; t_max::Int64, c::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64})
     t_c_b = c.curtailment_end+1
-    if t_c_b >= t_max
+    if t_c_b > t_max
         return -1
     end
 
@@ -146,10 +148,14 @@ end
 function calcul_p_c_j_max(; c1::Vertex, c2::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, t_max::Int64, dummy::Bool)
 
     # Si on traite un sommet factice :
-    if dummy || (c2.curtailment_start == 1)
+    if (c2.curtailment_start == 1)
         u_f_c_minus_1 = 0
     else
-        u_f_c_minus_1 = w[c2.curtailment_start-1] + calcul_u_b_f_c_minus_one(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, t_max = t_max)
+        if dummy
+            u_f_c_minus_1 = w[c2.curtailment_start-1]
+        else
+            u_f_c_minus_1 = w[c2.curtailment_start-1] + calcul_u_b_f_c_minus_one(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, t_max = t_max)
+        end
     end
     omega_c = (sum(w[t] for t in c2.curtailment_start:c2.curtailment_end) + u_f_c_minus_1) / (c2.curtailment_end - c2.curtailment_start + 2)
 
@@ -161,21 +167,15 @@ end
 # Fonction qui calcule la borne sup et la borne inf de d_c_j (qui commence après d_c_i)
 function calcul_bornes_d_c_j(; c1::Vertex, c2::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64, t_max::Int64, dummy::Bool)
     p_c_j_max = calcul_p_c_j_max(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, t_max = t_max, dummy = dummy)
-    if (c2.curtailment_start == 1 && c2.curtailment_end == 2)
-        println("Le p_c_j max !", p_c_j_max)
-    end
+    
     borne_inf = sum(delta * max(min(w[t], discharge_min), w[t] - p_c_j_max) for t in c2.curtailment_start:c2.curtailment_end)
-    if (c2.curtailment_start == 1 && c2.curtailment_end == 2)
-        println("La borne inf : ", borne_inf)
-    end
+    
     
     borne_sup = min(
         sum(delta * min(w[t], discharge_max) for t in c2.curtailment_start:c2.curtailment_end),
         b_max - b_min
     )
-    if (c2.curtailment_start == 1 && c2.curtailment_end == 2)
-        println("La borne sup : ", borne_sup)
-    end
+    
     
 
     return borne_inf, borne_sup
@@ -200,7 +200,9 @@ function is_arc_possible(; t_max::Int64, c1::Vertex, c2::Vertex, delta::Int64, p
 
 
     # Il faut maintenant calculer les bornes sup et inf pour d_c_2
+   
     borne_inf, borne_sup = calcul_bornes_d_c_j(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max, dummy=dummy)
+    
     if c2.discharge < borne_inf || c2.discharge > borne_sup
         return false
     end
@@ -294,7 +296,7 @@ end
 function calcul_saving_from_curtailment(; curtailment::Vertex, preced_curtailment::Vertex, energy_cost::Array{Float64}, reward::Array{Float64}, w::Array{Float64}, delta::Int64, p_b::Float64, p_max::Float64, p_TSO::Float64, t_max::Int64, discharge_min::Float64, discharge_max::Float64, dummy::Bool)
     l_set = calcul_array_L(energy_cost = energy_cost, reward = reward, delta = delta, curtailment = curtailment)
     i_star = calcul_i_star(l_set = l_set, curtailment = curtailment, preced_curtailment = preced_curtailment, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, t_max = t_max, discharge_min = discharge_min, discharge_max = discharge_max, dummy = dummy)
-
+    
     # Calcul des indices inferieurs à i_star
     curr_sum = 0
     for i = 1:i_star-1
@@ -302,22 +304,35 @@ function calcul_saving_from_curtailment(; curtailment::Vertex, preced_curtailmen
     end
 
     p_c_max = calcul_p_c_j_max(c1 = preced_curtailment, c2 = curtailment, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, t_max = t_max, dummy = dummy)
+
     #Calcul de l'indice i_star
     val_i_star = calcul_g_prime(energy_cost = energy_cost, reward = reward, delta = delta, time = l_set[i_star])*curtailment.discharge
-    val_i_star = val_i_star - (calcul_g_prime(energy_cost = energy_cost, reward = reward, delta = delta, time = l_set[i_star]) * ( d_min(curtailment = curtailment, delta = delta, w = w, discharge_min = discharge_min, p_c_max = p_c_max) + sum(begin
+    
+    #TODO je pense probleme ici
+    g_prime = calcul_g_prime(energy_cost = energy_cost, reward = reward, delta = delta, time = l_set[i_star])
+    d_min_i_star = d_min(curtailment = curtailment, delta = delta, w = w, discharge_min = discharge_min, p_c_max = p_c_max)
+    somme_du_terme_i_star = sum(begin
         d_t_max(delta = delta, time = l_set[i], w = w, discharge_max = discharge_max) - d_t_min(delta = delta, time = l_set[i], w = w, discharge_min = discharge_min, p_c_max = p_c_max)
-    end for i = 1:(i_star-1); init=0)))
+    end for i = 1:(i_star-1); init=0)
+    if (curtailment.curtailment_start == 5 && curtailment.curtailment_end == 5 && curtailment.discharge==36.0 && preced_curtailment.curtailment_start == -1)
+        println("d_min : ", d_min_i_star)
+        println("g prime : ", g_prime)
+        println("somme du terme i star ", somme_du_terme_i_star)
+    end 
+    val_i_star = val_i_star - (g_prime*(d_min_i_star + somme_du_terme_i_star))
 
     curr_sum = curr_sum + val_i_star
 
     #Calcul des indices supérieurs (strictement) à i_star
-
-    for i = i_star+1:length(l_set)
+   
+    for i = i_star:length(l_set)
         curr_sum = curr_sum + calcul_g_prime(energy_cost = energy_cost, reward = reward, delta = delta, time = l_set[i])*d_t_min(delta = delta, time = l_set[i], w = w, discharge_min = discharge_min, p_c_max = p_c_max)
 
     end
 
-
+    if (curtailment.curtailment_start == 5 && curtailment.curtailment_end == 5 && curtailment.discharge==36.0 && preced_curtailment.curtailment_start == -1)
+        println("fin sum : ", curr_sum)
+    end
     return curr_sum
 end
 
@@ -326,6 +341,9 @@ end
 function calcul_weight_arcs(; energy_cost::Array{Float64}, reward::Array{Float64}, w::Array{Float64}, t_max::Int64, delta::Int64, curtailment::Vertex,preced_curtailment::Vertex, p_b::Float64, p_max::Float64, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, dummy::Bool)
     battery_charge_cost = calcul_battery_charge_cost(energy_cost = energy_cost, t_max = t_max, delta = delta, curtailment = curtailment, p_b = p_b, p_max = p_max, w = w)
     saving_from_curtailment = calcul_saving_from_curtailment(curtailment = curtailment, preced_curtailment = preced_curtailment, energy_cost = energy_cost, reward = reward, w = w, delta = delta, p_b = p_b, p_max = p_max, p_TSO = p_TSO, t_max = t_max, discharge_min = discharge_min, discharge_max = discharge_max, dummy = dummy)
+    if (curtailment.curtailment_start == 5 && curtailment.curtailment_end == 5 && curtailment.discharge == 36.0)
+        println("Dans ce cas battery charge cost : ", battery_charge_cost, " savings : ", saving_from_curtailment)
+    end
     return saving_from_curtailment - battery_charge_cost
 end
 
@@ -358,6 +376,7 @@ function dummy_curtailment(; vertex_array::Array{Vertex}, arcs_array::Array{Arra
     for i = 1:(length(vertex_array)-2)
         # Pour v_s (premier sommet du graphe)
         if is_arc_possible(t_max = t_max, c1 = vertex_array[length(vertex_array)-1], c2 = vertex_array[i], delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, dummy = true)
+            println("Oui arc de dummy à qlq passé ! le qlq chose : ", vertex_array[i].curtailment_start, " termine : ", vertex_array[i].curtailment_end, " discharge : ", vertex_array[i].discharge)
             weight = calcul_weight_arcs(energy_cost = energy_cost, reward = reward, w = w, t_max = t_max, delta = delta, curtailment = vertex_array[i], preced_curtailment = vertex_array[length(vertex_array)-1], p_b = p_b, p_max = p_max, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, dummy = true)
             push!(arcs_array[length(vertex_array)-1], Arc(vertex_array[length(vertex_array)-1], vertex_array[i], weight))
         end
@@ -389,14 +408,13 @@ end
 function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, energy_cost::Array{Float64}, reward::Array{Float64})
 
     discharge_levels_array = load_discharge_levels(b_max = b_max, b_min = b_min, discharge_precision = discharge_precision)
-
     vertex_array = init_curtailments(t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max, discharge_levels = discharge_levels_array, p_b = p_b, p_max = p_max, w = w)
     
     arcs_array = init_arcs(energy_cost = energy_cost, vertex_array = vertex_array, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max, reward = reward)
-
     # On ajoute les dummy curtailment et leurs arcs
     start_v_id, end_v_id = dummy_curtailment(vertex_array = vertex_array, arcs_array = arcs_array, t_max = t_max, energy_cost = energy_cost, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, reward = reward, b_max = b_max, b_min = b_min)
-    
+
+    println(arcs_array)
     # valeur de référence (le cout de l'energie sans réductions)
     reference_value = calcul_ref_value(w, energy_cost)
 
