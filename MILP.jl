@@ -221,7 +221,9 @@ println("Possible curtailments in t", possible_curtailments_t)
 # 5. Résoudre
 optimize!(model)
 
+val = objective_value(model)
 
+println("Valeur de la fonction objectif : ", val)
 # 6. Vérifier le statut et récupérer les résultats
 status = termination_status(model)
 println("Statut de terminaison : ", status)

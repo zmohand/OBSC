@@ -3981,6 +3981,7 @@ Arc de : Vertex(502, 4, 4, 105.0) à : Vertex(506, 7, 7, 0.0) avec poids :0.0
 Arc de : Vertex(503, 4, 4, 107.0) à : Vertex(506, 7, 7, 0.0) avec poids :0.0
 Arc de : Vertex(504, 4, 4, 108.0) à : Vertex(506, 7, 7, 0.0) avec poids :0.0
 Plus long chemin dans ce graphe : 22.66666666666663
+Ancien cout : 476.0 Nouveau cout : 453.33333333333337
 Chemin pour l'avoir :
 Id : 505 Début reduction : -1 Fin reduction :-1 Déchargement associé : 0.0
 Id : 144 Début reduction : 1 Fin reduction :2 Déchargement associé : 108.0

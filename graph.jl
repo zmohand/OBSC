@@ -375,6 +375,16 @@ function dummy_curtailment(; vertex_array::Array{Vertex}, arcs_array::Array{Arra
     return start_vertex_id, end_vertex_id
 end
 
+# Fonction qui va calculer la valeur de référence
+function calcul_ref_value(w::Array{Float64}, energy_cost::Array{Float64})
+    ref_value = 0
+    for i = 1:(length(w))
+        ref_value = ref_value + w[i]*energy_cost[i]
+    end
+
+    return ref_value
+end
+
 
 function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, energy_cost::Array{Float64}, reward::Array{Float64})
 
@@ -386,9 +396,11 @@ function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::I
 
     # On ajoute les dummy curtailment et leurs arcs
     start_v_id, end_v_id = dummy_curtailment(vertex_array = vertex_array, arcs_array = arcs_array, t_max = t_max, energy_cost = energy_cost, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, reward = reward)
-    #just for testing
-    #println(arcs_array)
-    return vertex_array, arcs_array, start_v_id, end_v_id
+    
+    # valeur de référence (le cout de l'energie sans réductions)
+    reference_value = calcul_ref_value(w, energy_cost)
+
+    return vertex_array, arcs_array, start_v_id, end_v_id, reference_value
 end
 
 
@@ -462,7 +474,7 @@ end
 
 open("resultat.txt", "w") do f
     redirect_stdout(f) do
-       v_array, a_array, start_id, end_id = init_graph(t_max=6, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 0.3, discharge_max = 0.6, p_TSO = 0.8, p_b = 2.0, p_max = 4.4, b_max= 150.0, b_min = 42.0, w = [1.0, 1.8, 2.0, 1.8, 1.4, 0.8]
+       v_array, a_array, start_id, end_id, ref_value = init_graph(t_max=6, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 0.3, discharge_max = 0.6, p_TSO = 0.8, p_b = 2.0, p_max = 4.4, b_max= 150.0, b_min = 42.0, w = [1.0, 1.8, 2.0, 1.8, 1.4, 0.8]
 , energy_cost = [60.0, 60.0, 30.0, 70.0, 70.0, 30.0], 
 reward = [40.0, 30.0, 40.0, 25.0, 30.0, 15.0]) 
         println(v_array)
@@ -476,11 +488,13 @@ reward = [40.0, 30.0, 40.0, 25.0, 30.0, 15.0])
         end
         dist, pred = longest_path_dag(v_array, a_array, start_id)
         println("Plus long chemin dans ce graphe : ", dist[end_id])
+        println("Ancien cout : ", ref_value, " Nouveau cout : ", (ref_value - dist[end_id]))
         println("Chemin pour l'avoir :")
         nodes_list = trace_path(pred, start_id, end_id, v_array)
         for elm in nodes_list
             println("Id : ", elm.id, " Début reduction : ", elm.curtailment_start, " Fin reduction :", elm.curtailment_end, " Déchargement associé : ", elm.discharge)
         end
+
 
     end
 end
