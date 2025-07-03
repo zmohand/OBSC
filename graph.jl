@@ -113,7 +113,6 @@ function calcul_t_c_b(; t_max::Int64, c::Vertex, delta::Int64, p_b::Float64, p_m
         reference_value = delta * sum(min(p_b, p_max - w[t]) for t in (c.curtailment_end+1):t_c_b)
     end
 
-    #println("Valeur retournée par t_c_b = ",t_c_b, " appel sur curtailment commencant à ", c.curtailment_start, " et finissant à ", c.curtailment_end)
     return t_c_b
 
 end
@@ -147,59 +146,64 @@ end
 function calcul_p_c_j_max(; c1::Vertex, c2::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, t_max::Int64, dummy::Bool)
 
     # Si on traite un sommet factice :
-    if dummy
+    if dummy || (c2.curtailment_start == 1)
         u_f_c_minus_1 = 0
     else
         u_f_c_minus_1 = w[c2.curtailment_start-1] + calcul_u_b_f_c_minus_one(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, t_max = t_max)
     end
     omega_c = (sum(w[t] for t in c2.curtailment_start:c2.curtailment_end) + u_f_c_minus_1) / (c2.curtailment_end - c2.curtailment_start + 2)
 
-    #println("Pcj max achetable = ", max(0, omega_c-p_TSO), " avec c1 commence à ", c1.curtailment_start, " et finissant à ", c1.curtailment_end, " et c2 commencant à ", c2.curtailment_start, " et finissant à ", c2.curtailment_end, " et discharge c1: ", c1.discharge, " et celle de c2 :", c2.discharge)
     return max(0, omega_c - p_TSO)
 
 end
 
 
 # Fonction qui calcule la borne sup et la borne inf de d_c_j (qui commence après d_c_i)
-function calcul_bornes_d_c_j(; c1::Vertex, c2::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64, t_max::Int64)
-    p_c_j_max = calcul_p_c_j_max(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, t_max = t_max, dummy = false)
+function calcul_bornes_d_c_j(; c1::Vertex, c2::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64, t_max::Int64, dummy::Bool)
+    p_c_j_max = calcul_p_c_j_max(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, t_max = t_max, dummy = dummy)
+    if (c2.curtailment_start == 1 && c2.curtailment_end == 2)
+        println("Le p_c_j max !", p_c_j_max)
+    end
     borne_inf = sum(delta * max(min(w[t], discharge_min), w[t] - p_c_j_max) for t in c2.curtailment_start:c2.curtailment_end)
-
+    if (c2.curtailment_start == 1 && c2.curtailment_end == 2)
+        println("La borne inf : ", borne_inf)
+    end
+    
     borne_sup = min(
         sum(delta * min(w[t], discharge_max) for t in c2.curtailment_start:c2.curtailment_end),
         b_max - b_min
     )
+    if (c2.curtailment_start == 1 && c2.curtailment_end == 2)
+        println("La borne sup : ", borne_sup)
+    end
+    
 
-    # println("Bornes inf =", borne_inf, " et borne sup :", borne_sup)
     return borne_inf, borne_sup
 end
 
 
 # Fonction qui va vérifier si un arc entre deux sommets est possible
-function is_arc_possible(; t_max::Int64, c1::Vertex, c2::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64)
-   
-    t_c1_b = calcul_t_c_b(t_max = t_max, c = c1, delta = delta, p_b = p_b, p_max = p_max, w = w)
-    # Cas où on sort des bornes
-    # println("Test 1")
-    if t_c1_b == -1
-        return false
-    end
-    # println("Test 2")
+function is_arc_possible(; t_max::Int64, c1::Vertex, c2::Vertex, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64, dummy::Bool)
+    
+    if (!dummy)
+        t_c1_b = calcul_t_c_b(t_max = t_max, c = c1, delta = delta, p_b = p_b, p_max = p_max, w = w)
+        # Cas où on sort des bornes
+        if t_c1_b == -1
+            return false
+        end
 
-    # Cas où la deuxieme reduction commence avant que la batterie ne se recharge
-    if (t_c1_b >= c2.curtailment_start)
-        return false
+        # Cas où la deuxieme reduction commence avant que la batterie ne se recharge
+        if (t_c1_b >= c2.curtailment_start)
+            return false
+        end
     end
-    # println("Test 3")
 
 
     # Il faut maintenant calculer les bornes sup et inf pour d_c_2
-    borne_inf, borne_sup = calcul_bornes_d_c_j(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max)
-    # println("Borne supx = ", borne_sup, " borne_inf :" , borne_inf)
+    borne_inf, borne_sup = calcul_bornes_d_c_j(c1 = c1, c2 = c2, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max, dummy=dummy)
     if c2.discharge < borne_inf || c2.discharge > borne_sup
         return false
     end
-    # println("4eme test")
 
     # Si tout est bon, alors l'arc est possible
     return true
@@ -217,7 +221,6 @@ function calcul_battery_charge_cost(; energy_cost::Array{Float64}, t_max::Int64,
     end
 
     
-    #println("Prob t_c_b ?", t_c_b, " t_max : ", t_max, " c_start :", curtailment.curtailment_start, " c_end : ", curtailment.curtailment_end)
     return energy_cost[t_c_b]*curtailment.discharge/delta + somme
 end
 
@@ -276,7 +279,6 @@ function calcul_i_star(; l_set::Array{Int64}, curtailment::Vertex, preced_curtai
 
     while (curtailment.discharge >= value && (index < length(l_set)))
         index = index + 1
-        #println("index ? :", index, " c start:", curtailment.curtailment_end, "c end ?", curtailment.curtailment_end)
         value = d_min(curtailment = curtailment, delta = delta, w = w, discharge_min = discharge_min, p_c_max = p_c_max) + sum(
         begin
             d_t_max(delta = delta, time = l_set[i], w = w, discharge_max = discharge_max) -
@@ -323,9 +325,7 @@ end
 # Fonction qui va calculer le poids des arcs (Fonction cout)
 function calcul_weight_arcs(; energy_cost::Array{Float64}, reward::Array{Float64}, w::Array{Float64}, t_max::Int64, delta::Int64, curtailment::Vertex,preced_curtailment::Vertex, p_b::Float64, p_max::Float64, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, dummy::Bool)
     battery_charge_cost = calcul_battery_charge_cost(energy_cost = energy_cost, t_max = t_max, delta = delta, curtailment = curtailment, p_b = p_b, p_max = p_max, w = w)
-    #println("BATTERY COST CHARGING : ", battery_charge_cost)
     saving_from_curtailment = calcul_saving_from_curtailment(curtailment = curtailment, preced_curtailment = preced_curtailment, energy_cost = energy_cost, reward = reward, w = w, delta = delta, p_b = p_b, p_max = p_max, p_TSO = p_TSO, t_max = t_max, discharge_min = discharge_min, discharge_max = discharge_max, dummy = dummy)
-    #println("SAVING FROM C: ", saving_from_curtailment)
     return saving_from_curtailment - battery_charge_cost
 end
 
@@ -334,15 +334,13 @@ end
 function init_arcs(; energy_cost::Array{Float64} ,vertex_array::Array{Vertex}, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, b_max::Float64, b_min::Float64, t_max::Int64, reward::Array{Float64})
     n = length(vertex_array)
     arcs_array = [Vector{Arc}() for _ in 1:n]
-    println(vertex_array)
     # On regarde tous les sommets, si on peut mettre un arc entre 2 sommets on le met
     for s in vertex_array
         for s_prime in vertex_array
-            if is_arc_possible(t_max = t_max, c1 = s, c2 = s_prime, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min)
-                # WEIGHT A CHANGER
+            if is_arc_possible(t_max = t_max, c1 = s, c2 = s_prime, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, dummy = false)
+   
                 weight = calcul_weight_arcs(energy_cost = energy_cost, reward = reward, w = w, t_max = t_max, delta = delta, curtailment = s_prime, preced_curtailment = s, p_b = p_b, p_max = p_max, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, dummy = false)
-                # println("Weight : ", weight)
-                #println("WEIGHT EN SORTIE : ", weight)
+                
                 push!(arcs_array[s.id], Arc(s, s_prime, weight)) 
             end 
         end
@@ -352,15 +350,17 @@ function init_arcs(; energy_cost::Array{Float64} ,vertex_array::Array{Vertex}, d
 end
 
 # Function to add the dummy curtailments
-function dummy_curtailment(; vertex_array::Array{Vertex}, arcs_array::Array{Array{Arc, 1}}, t_max::Int64, energy_cost::Array{Float64} , delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, reward::Array{Float64})
+function dummy_curtailment(; vertex_array::Array{Vertex}, arcs_array::Array{Array{Arc, 1}}, t_max::Int64, energy_cost::Array{Float64} , delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, reward::Array{Float64}, b_max::Float64, b_min::Float64)
     push!(vertex_array, Vertex(length(vertex_array)+1, -1, -1, 0))
     push!(vertex_array, Vertex(length(vertex_array) + 1, t_max + 1, t_max + 1, 0))
     append!(arcs_array, [Vector{Arc}() for _ in 1:2])
 
     for i = 1:(length(vertex_array)-2)
         # Pour v_s (premier sommet du graphe)
-        weight = calcul_weight_arcs(energy_cost = energy_cost, reward = reward, w = w, t_max = t_max, delta = delta, curtailment = vertex_array[i], preced_curtailment = vertex_array[length(vertex_array)-1], p_b = p_b, p_max = p_max, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, dummy = true)
-        push!(arcs_array[length(vertex_array)-1], Arc(vertex_array[length(vertex_array)-1], vertex_array[i], weight))
+        if is_arc_possible(t_max = t_max, c1 = vertex_array[length(vertex_array)-1], c2 = vertex_array[i], delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, dummy = true)
+            weight = calcul_weight_arcs(energy_cost = energy_cost, reward = reward, w = w, t_max = t_max, delta = delta, curtailment = vertex_array[i], preced_curtailment = vertex_array[length(vertex_array)-1], p_b = p_b, p_max = p_max, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, dummy = true)
+            push!(arcs_array[length(vertex_array)-1], Arc(vertex_array[length(vertex_array)-1], vertex_array[i], weight))
+        end
 
         # Pour v_t (dernier sommet du graphe)
         push!(arcs_array[length(vertex_array)], Arc(vertex_array[i], vertex_array[length(vertex_array)], 0))
@@ -395,7 +395,7 @@ function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::I
     arcs_array = init_arcs(energy_cost = energy_cost, vertex_array = vertex_array, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max, reward = reward)
 
     # On ajoute les dummy curtailment et leurs arcs
-    start_v_id, end_v_id = dummy_curtailment(vertex_array = vertex_array, arcs_array = arcs_array, t_max = t_max, energy_cost = energy_cost, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, reward = reward)
+    start_v_id, end_v_id = dummy_curtailment(vertex_array = vertex_array, arcs_array = arcs_array, t_max = t_max, energy_cost = energy_cost, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, reward = reward, b_max = b_max, b_min = b_min)
     
     # valeur de référence (le cout de l'energie sans réductions)
     reference_value = calcul_ref_value(w, energy_cost)
@@ -477,7 +477,7 @@ open("resultat.txt", "w") do f
        v_array, a_array, start_id, end_id, ref_value = init_graph(t_max=6, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 0.3, discharge_max = 0.6, p_TSO = 0.8, p_b = 2.0, p_max = 4.4, b_max= 150.0, b_min = 42.0, w = [1.0, 1.8, 2.0, 1.8, 1.4, 0.8]
 , energy_cost = [60.0, 60.0, 30.0, 70.0, 70.0, 30.0], 
 reward = [40.0, 30.0, 40.0, 25.0, 30.0, 15.0]) 
-        println(v_array)
+        #=
         index = 1
         for v in a_array
             println(" à partir du sommet : ", v_array[index])
@@ -485,7 +485,7 @@ reward = [40.0, 30.0, 40.0, 25.0, 30.0, 15.0])
                 println("Arc de : ", elm.curtailment_A, " à : ", elm.curtailment_B, " avec poids :" , elm.weight)
             end
             index = index + 1
-        end
+        end =#
         dist, pred = longest_path_dag(v_array, a_array, start_id)
         println("Plus long chemin dans ce graphe : ", dist[end_id])
         println("Ancien cout : ", ref_value, " Nouveau cout : ", (ref_value - dist[end_id]))
