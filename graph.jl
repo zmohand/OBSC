@@ -1,3 +1,6 @@
+using BenchmarkTools
+
+
 struct Vertex
     id :: Int64 
     curtailment_start :: Int64
@@ -308,17 +311,13 @@ function calcul_saving_from_curtailment(; curtailment::Vertex, preced_curtailmen
     #Calcul de l'indice i_star
     val_i_star = calcul_g_prime(energy_cost = energy_cost, reward = reward, delta = delta, time = l_set[i_star])*curtailment.discharge
     
-    #TODO je pense probleme ici
+  
     g_prime = calcul_g_prime(energy_cost = energy_cost, reward = reward, delta = delta, time = l_set[i_star])
     d_min_i_star = d_min(curtailment = curtailment, delta = delta, w = w, discharge_min = discharge_min, p_c_max = p_c_max)
     somme_du_terme_i_star = sum(begin
         d_t_max(delta = delta, time = l_set[i], w = w, discharge_max = discharge_max) - d_t_min(delta = delta, time = l_set[i], w = w, discharge_min = discharge_min, p_c_max = p_c_max)
     end for i = 1:(i_star-1); init=0)
-    if (curtailment.curtailment_start == 5 && curtailment.curtailment_end == 5 && curtailment.discharge==36.0 && preced_curtailment.curtailment_start == -1)
-        println("d_min : ", d_min_i_star)
-        println("g prime : ", g_prime)
-        println("somme du terme i star ", somme_du_terme_i_star)
-    end 
+   
     val_i_star = val_i_star - (g_prime*(d_min_i_star + somme_du_terme_i_star))
 
     curr_sum = curr_sum + val_i_star
@@ -330,9 +329,6 @@ function calcul_saving_from_curtailment(; curtailment::Vertex, preced_curtailmen
 
     end
 
-    if (curtailment.curtailment_start == 5 && curtailment.curtailment_end == 5 && curtailment.discharge==36.0 && preced_curtailment.curtailment_start == -1)
-        println("fin sum : ", curr_sum)
-    end
     return curr_sum
 end
 
@@ -341,9 +337,6 @@ end
 function calcul_weight_arcs(; energy_cost::Array{Float64}, reward::Array{Float64}, w::Array{Float64}, t_max::Int64, delta::Int64, curtailment::Vertex,preced_curtailment::Vertex, p_b::Float64, p_max::Float64, p_TSO::Float64, discharge_min::Float64, discharge_max::Float64, dummy::Bool)
     battery_charge_cost = calcul_battery_charge_cost(energy_cost = energy_cost, t_max = t_max, delta = delta, curtailment = curtailment, p_b = p_b, p_max = p_max, w = w)
     saving_from_curtailment = calcul_saving_from_curtailment(curtailment = curtailment, preced_curtailment = preced_curtailment, energy_cost = energy_cost, reward = reward, w = w, delta = delta, p_b = p_b, p_max = p_max, p_TSO = p_TSO, t_max = t_max, discharge_min = discharge_min, discharge_max = discharge_max, dummy = dummy)
-    if (curtailment.curtailment_start == 5 && curtailment.curtailment_end == 5 && curtailment.discharge == 36.0)
-        println("Dans ce cas battery charge cost : ", battery_charge_cost, " savings : ", saving_from_curtailment)
-    end
     return saving_from_curtailment - battery_charge_cost
 end
 
@@ -376,7 +369,6 @@ function dummy_curtailment(; vertex_array::Array{Vertex}, arcs_array::Array{Arra
     for i = 1:(length(vertex_array)-2)
         # Pour v_s (premier sommet du graphe)
         if is_arc_possible(t_max = t_max, c1 = vertex_array[length(vertex_array)-1], c2 = vertex_array[i], delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, dummy = true)
-            println("Oui arc de dummy à qlq passé ! le qlq chose : ", vertex_array[i].curtailment_start, " termine : ", vertex_array[i].curtailment_end, " discharge : ", vertex_array[i].discharge)
             weight = calcul_weight_arcs(energy_cost = energy_cost, reward = reward, w = w, t_max = t_max, delta = delta, curtailment = vertex_array[i], preced_curtailment = vertex_array[length(vertex_array)-1], p_b = p_b, p_max = p_max, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, dummy = true)
             push!(arcs_array[length(vertex_array)-1], Arc(vertex_array[length(vertex_array)-1], vertex_array[i], weight))
         end
@@ -414,7 +406,6 @@ function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::I
     # On ajoute les dummy curtailment et leurs arcs
     start_v_id, end_v_id = dummy_curtailment(vertex_array = vertex_array, arcs_array = arcs_array, t_max = t_max, energy_cost = energy_cost, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, reward = reward, b_max = b_max, b_min = b_min)
 
-    println(arcs_array)
     # valeur de référence (le cout de l'energie sans réductions)
     reference_value = calcul_ref_value(w, energy_cost)
 
@@ -489,32 +480,40 @@ function trace_path(pred::Dict{Int64, Int64}, start_id::Int64, final_id::Int64, 
 
 end
 
+function solve(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, reward::Array{Float64}, energy_cost::Array{Float64})
+    v_array, a_array, start_id, end_id, ref_value = init_graph(; t_max=t_max, delta=delta, delta_min = delta_min, delta_max = delta_max, discharge_precision = discharge_precision, discharge_min = discharge_min, discharge_max = discharge_max, p_TSO = p_TSO, p_b = p_b, p_max = p_max, b_max= b_max, b_min = b_min, w = w
+, energy_cost = energy_cost, 
+reward = reward)
+    dist, pred = longest_path_dag(v_array, a_array, start_id)
 
-open("resultat.txt", "w") do f
-    redirect_stdout(f) do
-       v_array, a_array, start_id, end_id, ref_value = init_graph(t_max=6, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 0.3, discharge_max = 0.6, p_TSO = 0.8, p_b = 2.0, p_max = 4.4, b_max= 150.0, b_min = 42.0, w = [1.0, 1.8, 2.0, 1.8, 1.4, 0.8]
-, energy_cost = [60.0, 60.0, 30.0, 70.0, 70.0, 30.0], 
-reward = [40.0, 30.0, 40.0, 25.0, 30.0, 15.0]) 
-        #=
-        index = 1
-        for v in a_array
-            println(" à partir du sommet : ", v_array[index])
-            for elm in v
-                println("Arc de : ", elm.curtailment_A, " à : ", elm.curtailment_B, " avec poids :" , elm.weight)
-            end
-            index = index + 1
-        end =#
+    return dist, pred, start_id, end_id, v_array, ref_value
+end
+
+
+function run_heuristic(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, reward::Array{Float64}, energy_cost::Array{Float64})
+    run_time = @elapsed begin
+        v_array, a_array, start_id, end_id, ref_value = init_graph(
+            t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max,
+            discharge_precision = discharge_precision, discharge_min = discharge_min,
+            discharge_max = discharge_max, p_TSO = p_TSO, p_b = p_b, p_max = p_max,
+            b_max = b_max, b_min = b_min, w = w, energy_cost = energy_cost, reward = reward
+        )
         dist, pred = longest_path_dag(v_array, a_array, start_id)
-        println("Plus long chemin dans ce graphe : ", dist[end_id])
-        println("Ancien cout : ", ref_value, " Nouveau cout : ", (ref_value - dist[end_id]))
-        println("Chemin pour l'avoir :")
-        nodes_list = trace_path(pred, start_id, end_id, v_array)
-        for elm in nodes_list
-            println("Id : ", elm.id, " Début reduction : ", elm.curtailment_start, " Fin reduction :", elm.curtailment_end, " Déchargement associé : ", elm.discharge)
-        end
+    end
 
-
+    
+    println("Plus long chemin dans ce graphe : ", dist[end_id])
+    println("Temps d'execution : ", run_time)
+    println("Ancien cout : ", ref_value, " Nouveau cout : ", (ref_value - dist[end_id]))
+    println("Chemin pour l'avoir :")
+    nodes_list = trace_path(pred, start_id, end_id, v_array)
+    for elm in nodes_list
+        println("Id : ", elm.id, " Début reduction : ", elm.curtailment_start, " Fin reduction :", elm.curtailment_end, " Déchargement associé : ", elm.discharge)
     end
 end
 
+
+run_heuristic(t_max=5, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 1.45, discharge_max = 14.5, p_TSO = 5.315, p_b = 6.38, p_max = 31.89, b_max= 106.33, b_min = 53.165, w = [12.5, 10.0, 8.4, 7.4, 6.0]
+, energy_cost = [37.3, 35.2, 26.3, 23.3, 25.3], 
+reward = [43.4, 38.2, 30.2, 16.3, 3.5])
 

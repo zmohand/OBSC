@@ -1,0 +1,30 @@
+échantillon de l'exemple de la thèse (t = 5 au lieu de 24, S4)
+
+b_max = 106.33
+
+p_b = 6.38
+
+discharge_max = 14.5
+
+p_max = 31.89
+
+p_TSO = 5.315
+ 
+discharge_min = 1.45
+
+b_min = 53.165
+
+t_max = 5
+
+delta = 60
+
+delta_min = 1
+delta_max = 2
+
+
+w = [12.5, 10.0, 8.4, 7.4, 6.0]
+
+reward = [43.4, 38.2, 30.2, 16.3, 3.5]
+
+energy_cost = [37.3, 35.2, 26.3, 23.3, 25.3]
+
