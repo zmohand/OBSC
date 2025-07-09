@@ -246,3 +246,4 @@ discharge_max = 14.5
 discharge_min = 1.45
 
 solve(t, delta_min, delta_max, delta, b_min, b_max, p_TSO, p_B, p_max, energy_cost, reward, w)
+

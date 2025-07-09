@@ -106,7 +106,6 @@ function calcul_t_c_b(; t_max::Int64, c::Vertex, delta::Int64, p_b::Float64, p_m
     if t_c_b > t_max
         return -1
     end
-
     reference_value = delta * sum(min(p_b, p_max - w[t]) for t in (c.curtailment_end+1):t_c_b)
 
     while reference_value < c.discharge
@@ -403,13 +402,14 @@ function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::I
     vertex_array = init_curtailments(t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max, discharge_levels = discharge_levels_array, p_b = p_b, p_max = p_max, w = w)
     
     arcs_array = init_arcs(energy_cost = energy_cost, vertex_array = vertex_array, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max, reward = reward)
+    number_array_without_dummy = sum(length(arcs_array[i]) for i in 1:length(vertex_array))
     # On ajoute les dummy curtailment et leurs arcs
     start_v_id, end_v_id = dummy_curtailment(vertex_array = vertex_array, arcs_array = arcs_array, t_max = t_max, energy_cost = energy_cost, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, reward = reward, b_max = b_max, b_min = b_min)
 
     # valeur de référence (le cout de l'energie sans réductions)
     reference_value = calcul_ref_value(w, energy_cost)
 
-    return vertex_array, arcs_array, start_v_id, end_v_id, reference_value
+    return vertex_array, arcs_array, start_v_id, end_v_id, reference_value, number_array_without_dummy
 end
 
 
@@ -492,7 +492,7 @@ end
 
 function run_heuristic(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, reward::Array{Float64}, energy_cost::Array{Float64})
     run_time = @elapsed begin
-        v_array, a_array, start_id, end_id, ref_value = init_graph(
+        v_array, a_array, start_id, end_id, ref_value, _ = init_graph(
             t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max,
             discharge_precision = discharge_precision, discharge_min = discharge_min,
             discharge_max = discharge_max, p_TSO = p_TSO, p_b = p_b, p_max = p_max,
@@ -516,4 +516,90 @@ end
 run_heuristic(t_max=5, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 1.45, discharge_max = 14.5, p_TSO = 5.315, p_b = 6.38, p_max = 31.89, b_max= 106.33, b_min = 53.165, w = [12.5, 10.0, 8.4, 7.4, 6.0]
 , energy_cost = [37.3, 35.2, 26.3, 23.3, 25.3], 
 reward = [43.4, 38.2, 30.2, 16.3, 3.5])
+
+
+# Fonction qui va calculer le nombre de curtailement qui sont liés (corrélation entre 2 curtailments)
+function count_correlated_curtailments(; vertices::Vector{Vertex}, arcs::Vector{Vector{Arc}}, t_max::Int64, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, start_id :: Int64, end_id :: Int64)
+    counter = 0
+    times = []
+    for i in 1:length(vertices)
+        if i != start_id && i != end_id
+
+            for j in 1:length(arcs[i])
+                c1 = arcs[i][j].curtailment_A
+                c2 = arcs[i][j].curtailment_B
+                t_c_b = calcul_t_c_b(t_max = t_max, c = c1, delta= delta, p_b = p_b , p_max = p_max, w = w)
+                if t_c_b == (c2.curtailment_start-1) && !(t_c_b in times)
+                    push!(times, t_c_b)
+                    counter = counter + 1
+                end
+
+            end
+        end
+    end
+
+    return counter
+
+end
+
+
+#= Fonction de génération pseudo-aléatoire
+On va considérer les différents sites décrits dans la thèse
+Puis générer aléatoirement les w, energy_cost, reward
+=#
+function random_generation()
+    #=
+        Description :
+        J'ai pris les sites de la thèse, avec un dictionnaire (clé : nom du site, exemple : S1)
+        Valeur : un tuple (a, b) avec a une liste des paramètres non array et le b les parametres array
+        pour a : [t_max, delta, delta_min, delta_max, p_max, b_max, b_min, discharge_min, discharge_max, p_B, p_TSO]
+        pour b : [[w], [energy_cost], [reward]]
+    =#
+
+    # Represente le nombre d'instances "satisfaisantes" trouvées
+
+    counter = 0
+    w = Float64[]
+    energy_cost = Float64[]
+    reward = Float64[]
+
+
+    #TODO rajouter les autres sites
+    # Discharge precision mis à 1%
+    sites = Dict("S1"=>([24, 15, 1, 2, 11.79, 39.26, 19.63, 0.538, 5.38, 2.34, 1.965], [[], [], []]))
+    for k in keys(sites)
+        while counter < 5
+            w = rand(Int(sites[k][1][1])) .* (30.0 - 1.0) .+ 1.0
+            energy_cost = rand(Int(sites[k][1][1])) .* (70.0 - 1.0) .+ 1.0
+            reward = rand(Int(sites[k][1][1])) .* (50.0 - 1.0) .+ 1.0
+            v_array, a_array, start_id, end_id, ref_value, number_array_without_dummy = init_graph(
+                t_max = Int(sites[k][1][1]), delta = Int(sites[k][1][2]), delta_min = Int(sites[k][1][3]), delta_max = Int(sites[k][1][4]),
+                discharge_precision = 1, discharge_min = sites[k][1][8],
+                discharge_max = sites[k][1][9], p_TSO = sites[k][1][11], p_b = sites[k][1][10], p_max = sites[k][1][5],
+                b_max = sites[k][1][6], b_min = sites[k][1][7], w = w, energy_cost = energy_cost, reward = reward
+            )
+            counter = count_correlated_curtailments(vertices = v_array, arcs=a_array, t_max= Int(sites[k][1][1]), delta = Int(sites[k][1][2]), p_b =sites[k][1][10], p_max = sites[k][1][5], w = w, start_id = start_id, end_id = end_id)
+            println("counter trouvé : ", counter)
+            if counter >= 5
+                dist, pred = longest_path_dag(v_array, a_array, start_id)
+                println("Plus long chemin dans ce graphe : ", dist[end_id])
+                println("Ancien cout : ", ref_value, " Nouveau cout : ", (ref_value - dist[end_id]))
+                println("Chemin pour l'avoir :")
+                nodes_list = trace_path(pred, start_id, end_id, v_array)
+                for elm in nodes_list
+                    println("Id : ", elm.id, " Début reduction : ", elm.curtailment_start, " Fin reduction :", elm.curtailment_end, " Déchargement associé : ", elm.discharge)
+                end
+            end
+        end
+       
+        push!(sites[k][2][1], w)
+        push!(sites[k][2][2], energy_cost)
+        push!(sites[k][2][3], reward)
+
+    end
+
+    return sites
+
+end
+
 
