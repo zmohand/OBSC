@@ -1,4 +1,5 @@
 using BenchmarkTools
+using Random
 
 
 struct Vertex
@@ -71,6 +72,80 @@ function init_curtailments(; t_max::Int64, delta::Int64, delta_min::Int64, delta
     end
 
     return vertex_array
+
+end
+
+
+# Fonction qui va calculer les niveau de d possibles
+function first_part_values_d(dmin::Float64, alpha::Float64, b_max::Float64, b_min::Float64, d_min::Float64)
+    discharges = Array{Float64}(undef, 0)
+    p_set = [i for i in 0:(floor(Int, 1/(1/alpha)))]
+    for p in p_set
+        push!(discharges, (dmin + p*(1/alpha)*(b_max-b_min-d_min)))
+    end
+    
+    return discharges
+
+end
+
+
+# Fonction qui va initialiser les sommets en lien avec l'heuristique améliorée
+function init_curtailments_improved_heuristic(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, alpha::float64, p_b::Float64, p_max::Float64, w::Array{Float64}, discharge_min::Float64, discharge_max::Float64)
+    sequence_id = 1
+    temp_arrays = Tuple{Int, Int, Float64}[]
+
+    # Tout ça va s'occuper de charger les vertex liés à la premiere partie du set D
+    for first_c = 1:t_max
+        for last_c = first_c:t_max
+
+            p_c_max = calcul_p_c_j_max( c1 = Vertex(-20, 0, 0, 0), c2 = Vertex(-20, first_c, last_c, 0), delta= delta, p_b = p_b, p_max = p_max, w=w, p_TSO=p_TSO, t_max=t_max, dummy=true)
+
+            dmin = d_min(curtailment = Vertex(-20, first_c, last_c, 0), delta=delta, w=w, p_c_max=p_c_max)
+
+            for d in first_part_values_d(dmin, alpha, b_max, b_min, discharge_min)
+                t_c_b = calcul_t_c_b(t_max = t_max, c= Vertex(sequence_id, first_c, last_c, d), delta=delta, p_b = p_b, p_max = p_max, w = w)
+                
+                if is_curtailment_possible(t_max = t_max, first_curtailment = first_c, last_curtailment = last_c, delta_min = delta_min, delta_max = delta_max, t_c_b = t_c_b)
+                    push!(temp_arrays, (first_c, last_c, d))
+                    
+                end
+
+            end
+        end
+    end
+
+    # Ajout de la deuxieme partie
+    for v in temp_arrays
+        d_max = d_max(curtailment=Vertex(-20, v[1], v[2], v[3]), delta=delta, w=w, discharge_max=discharge_max, b_max=b_max, b_min=b_min)
+        if !((v[1], v[2], d_max) in temp_arrays)
+            t_c_b = calcul_t_c_b(t_max = t_max, c= Vertex(sequence_id, first_c, last_c, d), delta=delta, p_b = p_b, p_max = p_max, w = w)
+            if is_curtailment_possible(t_max = t_max, first_curtailment = first_c, last_curtailment = last_c, delta_min = delta_min, delta_max = delta_max, t_c_b = t_c_b)
+                push!(temp_arrays, (first_c, last_c, d)) 
+            end
+        end
+    end
+
+    # Ajout de la 3eme partie
+
+    for v in temp_arrays
+        tau_B = v[1] + 1
+        while (tau_B <= t_max)
+            d = sum(min(p_b, p_max - w[i]) for i in (v[1]+1):tau_B)
+            if ! ((v[1], v[2], d) in temp_arrays)
+                push!(temp_arrays, (v[1], v[2], d))
+            end
+        end
+
+    end
+
+    vertex_array = Array{Vertex}(undef, 0)
+    # Et on met tout sous la forme d'un array
+    for elm in temp_arrays
+        push!(vertex_array, Vertex(sequence_id, elm[1], elm[2], elm[3]))
+        sequence_id = sequence_id + 1
+    end
+
+    return vertex_array 
 
 end
 
@@ -261,6 +336,13 @@ end
 function d_t_max(; delta::Int64, time::Int64, w::Array{Float64}, discharge_max::Float64)
     return delta*min(w[time], discharge_max)
 end
+
+# Fonction qui va calculer d_max
+function d_max(; curtailment::Vertex, delta::Int64, w::Array{Float64}, discharge_max::Float64, b_max::Float64, b_min::Float64)
+    return min(sum(d_t_max(delta=delta, time=i, w=w, discharge_max=discharge_max) for i in curtailment.curtailment_start:curtailment.curtailment_end) , b_max-b_min)
+end
+
+
 
 # Fonction qui va calculer le d_min (déchargement minimal associé à un curtailment)
 function d_min(; curtailment::Vertex, delta::Int64, w::Array{Float64}, discharge_min::Float64, p_c_max::Float64)
@@ -542,12 +624,26 @@ function count_correlated_curtailments(; vertices::Vector{Vertex}, arcs::Vector{
 
 end
 
+function tableau_moyenne_controlee(n::Int, m::Float64; ecart_type_ratio::Float64 = 0.1)
+    # Génère des valeurs avec une moyenne 0 et un écart-type contrôlé
+    sigma = m * ecart_type_ratio
+    base = randn(n) * sigma
+    
+    # Décale pour obtenir une moyenne exacte de m
+    base .+= m - mean(base)
+    return base
+end
+
+
+
 
 #= Fonction de génération pseudo-aléatoire
 On va considérer les différents sites décrits dans la thèse
 Puis générer aléatoirement les w, energy_cost, reward
 =#
 function random_generation()
+    Random.seed!()
+
     #=
         Description :
         J'ai pris les sites de la thèse, avec un dictionnaire (clé : nom du site, exemple : S1)
@@ -559,19 +655,27 @@ function random_generation()
     # Represente le nombre d'instances "satisfaisantes" trouvées
 
     counter = 0
-    w = Float64[]
+    w = Float64[]   
     energy_cost = Float64[]
     reward = Float64[]
 
 
+    
+
     #TODO rajouter les autres sites
     # Discharge precision mis à 1%
-    sites = Dict("S1"=>([24, 15, 1, 2, 11.79, 39.26, 19.63, 0.538, 5.38, 2.34, 1.965], [[], [], []]))
+    sites = Dict(
+        "S1"=>([96, 15, 1, 2, 11.79, 39.26, 19.63, 0.538, 5.38, 2.34, 1.965], [[], [], []]),
+        "S2"=>([96, 15, 1, 2, 1.41, 2.35, 1.175, 0.064, 0.64, 0.14, 0.235], [[], [], []]),
+        "S3"=>([96, 15, 1, 2, 5.46, 9.11, 4.555, 0.15, 2.49, 0.59, 0.91], [[], [], []]),
+        "S4"=>([96, 15, 1, 2, 31.89, 106.33, 53.165, 1.45, 14.5, 6.38, 5.315], [[], [], []])
+    )
     for k in keys(sites)
+        counter = 0
         while counter < 5
-            w = rand(Int(sites[k][1][1])) .* (30.0 - 1.0) .+ 1.0
-            energy_cost = rand(Int(sites[k][1][1])) .* (70.0 - 1.0) .+ 1.0
-            reward = rand(Int(sites[k][1][1])) .* (50.0 - 1.0) .+ 1.0
+            w = tableau_moyenne_controlee(Int(sites[k][1][1]), sites[k][1][5]/3; ecart_type_ratio = rand(0.05:0.01:0.2))
+            energy_cost = rand(Int(sites[k][1][1])) .* (200.0 - 1.0) .+ 1.0
+            reward = rand(Int(sites[k][1][1])) .* (140.0 - 1.0) .+ 1.0
             v_array, a_array, start_id, end_id, ref_value, number_array_without_dummy = init_graph(
                 t_max = Int(sites[k][1][1]), delta = Int(sites[k][1][2]), delta_min = Int(sites[k][1][3]), delta_max = Int(sites[k][1][4]),
                 discharge_precision = 1, discharge_min = sites[k][1][8],
@@ -579,22 +683,13 @@ function random_generation()
                 b_max = sites[k][1][6], b_min = sites[k][1][7], w = w, energy_cost = energy_cost, reward = reward
             )
             counter = count_correlated_curtailments(vertices = v_array, arcs=a_array, t_max= Int(sites[k][1][1]), delta = Int(sites[k][1][2]), p_b =sites[k][1][10], p_max = sites[k][1][5], w = w, start_id = start_id, end_id = end_id)
-            println("counter trouvé : ", counter)
-            if counter >= 5
-                dist, pred = longest_path_dag(v_array, a_array, start_id)
-                println("Plus long chemin dans ce graphe : ", dist[end_id])
-                println("Ancien cout : ", ref_value, " Nouveau cout : ", (ref_value - dist[end_id]))
-                println("Chemin pour l'avoir :")
-                nodes_list = trace_path(pred, start_id, end_id, v_array)
-                for elm in nodes_list
-                    println("Id : ", elm.id, " Début reduction : ", elm.curtailment_start, " Fin reduction :", elm.curtailment_end, " Déchargement associé : ", elm.discharge)
-                end
-            end
+            println("Counter trouvé", counter)
         end
        
         push!(sites[k][2][1], w)
         push!(sites[k][2][2], energy_cost)
         push!(sites[k][2][3], reward)
+        println("passed")
 
     end
 
