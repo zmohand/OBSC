@@ -90,7 +90,7 @@ end
 
 
 # Fonction qui va initialiser les sommets en lien avec l'heuristique améliorée
-function init_curtailments_improved_heuristic(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, alpha::float64, p_b::Float64, p_max::Float64, w::Array{Float64}, discharge_min::Float64, discharge_max::Float64)
+function init_curtailments_improved_heuristic(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, alpha::Float64, p_b::Float64, p_max::Float64, w::Array{Float64}, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, b_max::Float64, b_min::Float64)
     sequence_id = 1
     temp_arrays = Tuple{Int, Int, Float64}[]
 
@@ -100,7 +100,7 @@ function init_curtailments_improved_heuristic(; t_max::Int64, delta::Int64, delt
 
             p_c_max = calcul_p_c_j_max( c1 = Vertex(-20, 0, 0, 0), c2 = Vertex(-20, first_c, last_c, 0), delta= delta, p_b = p_b, p_max = p_max, w=w, p_TSO=p_TSO, t_max=t_max, dummy=true)
 
-            dmin = d_min(curtailment = Vertex(-20, first_c, last_c, 0), delta=delta, w=w, p_c_max=p_c_max)
+            dmin = d_min(curtailment = Vertex(-20, first_c, last_c, 0), delta=delta, w=w, p_c_max=p_c_max, discharge_min = discharge_min)
 
             for d in first_part_values_d(dmin, alpha, b_max, b_min, discharge_min)
                 t_c_b = calcul_t_c_b(t_max = t_max, c= Vertex(sequence_id, first_c, last_c, d), delta=delta, p_b = p_b, p_max = p_max, w = w)
@@ -113,20 +113,18 @@ function init_curtailments_improved_heuristic(; t_max::Int64, delta::Int64, delt
             end
         end
     end
-
     # Ajout de la deuxieme partie
     for v in temp_arrays
-        d_max = d_max(curtailment=Vertex(-20, v[1], v[2], v[3]), delta=delta, w=w, discharge_max=discharge_max, b_max=b_max, b_min=b_min)
-        if !((v[1], v[2], d_max) in temp_arrays)
-            t_c_b = calcul_t_c_b(t_max = t_max, c= Vertex(sequence_id, first_c, last_c, d), delta=delta, p_b = p_b, p_max = p_max, w = w)
-            if is_curtailment_possible(t_max = t_max, first_curtailment = first_c, last_curtailment = last_c, delta_min = delta_min, delta_max = delta_max, t_c_b = t_c_b)
-                push!(temp_arrays, (first_c, last_c, d)) 
+        dmax = d_max(curtailment=Vertex(-20, v[1], v[2], v[3]), delta=delta, w=w, discharge_max=discharge_max, b_max=b_max, b_min=b_min)
+        if !((v[1], v[2], dmax) in temp_arrays)
+            t_c_b = calcul_t_c_b(t_max = t_max, c= Vertex(sequence_id, v[1], v[2], dmax), delta=delta, p_b = p_b, p_max = p_max, w = w)
+            if is_curtailment_possible(t_max = t_max, first_curtailment = v[1], last_curtailment = v[2], delta_min = delta_min, delta_max = delta_max, t_c_b = t_c_b)
+                push!(temp_arrays, (v[1], v[2], dmax)) 
             end
         end
     end
 
     # Ajout de la 3eme partie
-
     for v in temp_arrays
         tau_B = v[1] + 1
         while (tau_B <= t_max)
@@ -134,6 +132,7 @@ function init_curtailments_improved_heuristic(; t_max::Int64, delta::Int64, delt
             if ! ((v[1], v[2], d) in temp_arrays)
                 push!(temp_arrays, (v[1], v[2], d))
             end
+            tau_B = tau_B + 1;
         end
 
     end
@@ -144,7 +143,6 @@ function init_curtailments_improved_heuristic(; t_max::Int64, delta::Int64, delt
         push!(vertex_array, Vertex(sequence_id, elm[1], elm[2], elm[3]))
         sequence_id = sequence_id + 1
     end
-
     return vertex_array 
 
 end
@@ -342,8 +340,6 @@ function d_max(; curtailment::Vertex, delta::Int64, w::Array{Float64}, discharge
     return min(sum(d_t_max(delta=delta, time=i, w=w, discharge_max=discharge_max) for i in curtailment.curtailment_start:curtailment.curtailment_end) , b_max-b_min)
 end
 
-
-
 # Fonction qui va calculer le d_min (déchargement minimal associé à un curtailment)
 function d_min(; curtailment::Vertex, delta::Int64, w::Array{Float64}, discharge_min::Float64, p_c_max::Float64)
     sum = 0
@@ -478,24 +474,24 @@ function calcul_ref_value(w::Array{Float64}, energy_cost::Array{Float64})
 end
 
 
-function init_graph(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, energy_cost::Array{Float64}, reward::Array{Float64})
+function init_graph(; improved_heuristic::Bool, t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, energy_cost::Array{Float64}, reward::Array{Float64})
 
-    discharge_levels_array = load_discharge_levels(b_max = b_max, b_min = b_min, discharge_precision = discharge_precision)
-    vertex_array = init_curtailments(t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max, discharge_levels = discharge_levels_array, p_b = p_b, p_max = p_max, w = w)
-    
+    if !improved_heuristic
+        discharge_levels_array = load_discharge_levels(b_max = b_max, b_min = b_min, discharge_precision = discharge_precision)
+        vertex_array = init_curtailments(t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max, discharge_levels = discharge_levels_array, p_b = p_b, p_max = p_max, w = w)
+    else
+        vertex_array = init_curtailments_improved_heuristic(t_max=t_max, delta=delta, delta_min = delta_min, delta_max = delta_max, alpha = Float64(discharge_precision), p_b = p_b, p_max = p_max, w= w, discharge_min = discharge_min, discharge_max = discharge_max, p_TSO=p_TSO, b_max = b_max, b_min = b_min)
+    end
     arcs_array = init_arcs(energy_cost = energy_cost, vertex_array = vertex_array, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, b_max = b_max, b_min = b_min, t_max = t_max, reward = reward)
     number_array_without_dummy = sum(length(arcs_array[i]) for i in 1:length(vertex_array))
     # On ajoute les dummy curtailment et leurs arcs
     start_v_id, end_v_id = dummy_curtailment(vertex_array = vertex_array, arcs_array = arcs_array, t_max = t_max, energy_cost = energy_cost, delta = delta, p_b = p_b, p_max = p_max, w = w, p_TSO = p_TSO, discharge_min = discharge_min, discharge_max = discharge_max, reward = reward, b_max = b_max, b_min = b_min)
-
+    println("Nombre de sommets avec improved heuristic ? ", improved_heuristic, " nb égal =" ,length(vertex_array))
     # valeur de référence (le cout de l'energie sans réductions)
     reference_value = calcul_ref_value(w, energy_cost)
 
     return vertex_array, arcs_array, start_v_id, end_v_id, reference_value, number_array_without_dummy
 end
-
-
-
 
 # Tri topo + bellman
 function longest_path_dag(vertices::Vector{Vertex}, arcs::Vector{Vector{Arc}}, start_id::Int64)
@@ -572,10 +568,10 @@ reward = reward)
 end
 
 
-function run_heuristic(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, reward::Array{Float64}, energy_cost::Array{Float64})
+function run_heuristic(; improved_heuristic ::Bool, t_max::Int64, delta::Int64, delta_min::Int64, delta_max::Int64, discharge_precision::Int64, discharge_min::Float64, discharge_max::Float64, p_TSO::Float64, p_b::Float64, p_max::Float64, b_max::Float64, b_min::Float64, w::Array{Float64}, reward::Array{Float64}, energy_cost::Array{Float64})
     run_time = @elapsed begin
         v_array, a_array, start_id, end_id, ref_value, _ = init_graph(
-            t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max,
+            improved_heuristic = improved_heuristic, t_max = t_max, delta = delta, delta_min = delta_min, delta_max = delta_max,
             discharge_precision = discharge_precision, discharge_min = discharge_min,
             discharge_max = discharge_max, p_TSO = p_TSO, p_b = p_b, p_max = p_max,
             b_max = b_max, b_min = b_min, w = w, energy_cost = energy_cost, reward = reward
@@ -595,106 +591,13 @@ function run_heuristic(; t_max::Int64, delta::Int64, delta_min::Int64, delta_max
 end
 
 
-run_heuristic(t_max=5, delta=60, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 1.45, discharge_max = 14.5, p_TSO = 5.315, p_b = 6.38, p_max = 31.89, b_max= 106.33, b_min = 53.165, w = [12.5, 10.0, 8.4, 7.4, 6.0]
-, energy_cost = [37.3, 35.2, 26.3, 23.3, 25.3], 
-reward = [43.4, 38.2, 30.2, 16.3, 3.5])
-
-
-# Fonction qui va calculer le nombre de curtailement qui sont liés (corrélation entre 2 curtailments)
-function count_correlated_curtailments(; vertices::Vector{Vertex}, arcs::Vector{Vector{Arc}}, t_max::Int64, delta::Int64, p_b::Float64, p_max::Float64, w::Array{Float64}, start_id :: Int64, end_id :: Int64)
-    counter = 0
-    times = []
-    for i in 1:length(vertices)
-        if i != start_id && i != end_id
-
-            for j in 1:length(arcs[i])
-                c1 = arcs[i][j].curtailment_A
-                c2 = arcs[i][j].curtailment_B
-                t_c_b = calcul_t_c_b(t_max = t_max, c = c1, delta= delta, p_b = p_b , p_max = p_max, w = w)
-                if t_c_b == (c2.curtailment_start-1) && !(t_c_b in times)
-                    push!(times, t_c_b)
-                    counter = counter + 1
-                end
-
-            end
-        end
-    end
-
-    return counter
-
-end
-
-function tableau_moyenne_controlee(n::Int, m::Float64; ecart_type_ratio::Float64 = 0.1)
-    # Génère des valeurs avec une moyenne 0 et un écart-type contrôlé
-    sigma = m * ecart_type_ratio
-    base = randn(n) * sigma
-    
-    # Décale pour obtenir une moyenne exacte de m
-    base .+= m - mean(base)
-    return base
-end
+run_heuristic(improved_heuristic = false, t_max=96, delta=15, delta_min = 1, delta_max = 2, discharge_precision=1, discharge_min = 1.45, discharge_max = 14.5, p_TSO = 5.315, p_b = 6.38, p_max = 31.89, b_max= 106.33, b_min = 53.165, w = [10.507996761717218, 9.733542488512132, 9.662331097944357, 7.97224326726, 6.606087922206213, 8.773672329548887, 9.60626010127904, 9.856003251793606, 9.248740881102975, 11.891793110389175, 10.391533646213217, 11.719437014221056, 8.704960677803792, 8.259145174347815, 9.315124481540888, 13.386755716468052, 9.060394752673709, 10.274518685874014, 12.211452668282316, 6.283198789335201, 10.820185858535353, 9.035532967414596, 8.326332297074845, 7.87520450129465, 11.195546248582295, 8.218228652354782, 12.214054853535025, 8.726102904547798, 7.108264034246719, 9.793387963314384, 11.70109361597738, 10.578641167987449, 11.39126914248145, 9.22644853762128, 11.452580244952715, 12.48640157047186, 10.325215575509661, 9.951981685705116, 10.56198771276182, 6.564360098157062, 10.102874543969666, 10.44963168956906, 9.408717758165354, 8.426025469642054, 11.942124136270886, 13.312167082240453, 9.987508466760662, 11.09800485197126, 9.52859952921557, 10.386142062623094, 11.933153408591394, 12.059946132065233, 11.884699326055664, 12.655700372150378, 10.235484544114358, 9.753526967761127, 12.78708316652121, 12.38331089511357, 10.679915341365021, 11.31319982590546, 8.213565124889476, 13.233791186047466, 9.170882914724071, 10.142717819441764, 11.543630717695233, 12.245091474286136, 8.893397046327896, 10.701467922002182, 13.203418025737102, 13.973763193425679, 10.022992745856564, 13.756808473836678, 13.086674139681627, 13.536322882571167, 12.091015027481081, 11.492379291690263, 11.183774681733151, 10.573965562980868, 11.563461353316134, 10.495738680262052, 8.578821278547759, 16.381005368301874, 10.696985265862413, 10.497089044277876, 10.85843372290127, 13.261612987014699, 7.281136579962315, 8.842239548371019, 7.69322599361125, 13.666772837748502, 12.987821449192515, 14.121461804753514, 10.08520957480766, 15.137866569199335, 11.21839279189488, 8.701238898455218]
+, energy_cost = [66.96830659209117, 131.10637569940397, 95.26788754405236, 117.29566687642398, 61.00506655920289, 116.17349709569898, 103.4267715051522, 65.39625326925619, 45.92657274123862, 84.15267902113027, 52.377535192378424, 31.2425382930453, 6.085287370699422, 69.18376673888685, 68.20553235062958, 152.8219881981726, 2.596164479807565, 60.93610530998809, 163.7629337834969, 86.33047055069753, 191.95456602280734, 90.93880490817408, 180.19880964385854, 177.6844727394514, 116.48648767998692, 28.608933560344, 5.612476316465644, 85.88119050131469, 127.09821023849398, 49.49732827414006, 54.73774528966091, 172.8008883419809, 50.091443980246495, 9.824808618836615, 172.98846493089158, 174.1546462864453, 139.64758205664276, 123.4648819667046, 143.3678943325128, 147.75229531411216, 115.05864095315214, 141.8643037353263, 119.47074922691507, 49.70500299079833, 93.18359431327087, 18.860177607721294, 174.04459594075377, 44.406812801139004, 35.83172454134235, 197.29585633737264, 24.727130729213215, 121.59406710597567, 187.13642429997736, 198.00034283627505, 80.56355529531028, 179.12235738529824, 140.30899003218983, 185.17217317876487, 40.17647896072025, 65.89270788930868, 190.4224601590843, 125.84249895965436, 82.88114112251127, 35.58698975522131, 179.48189651418616, 181.1854219627286, 1.502590024661525, 75.20679604274001, 120.55085270824515, 57.077471319790675, 196.26241979925243, 188.29275781832266, 199.00645284192706, 107.85579724514118, 191.99083012264978, 180.99784066569126, 82.93106056593794, 122.00813267411068, 169.97830824408004, 86.63419241704787, 21.749958704401323, 93.94623407472564, 81.24860456578307, 68.40211451706847, 27.32122170425805, 125.76708925601481, 189.52245102480663, 181.26130722459035, 41.62151096460662, 16.496815246199645, 194.86483976694035, 123.8789616061243, 27.18028427662953, 104.41419288027453, 166.82740116777498, 180.39929550149515], 
+reward = [68.19782715099605, 13.213080340189252, 138.94947508699263, 127.72787307068619, 85.6120298065787, 10.106978352630385, 72.27014841057569, 60.4106425203684, 134.1594883862214, 100.29747976487339, 138.0166893134052, 78.95765599840719, 117.31918110848213, 65.36565548006425, 128.4041381531086, 63.441492069042006, 57.735871945376104, 24.545864209843348, 117.40039737632993, 21.170461042205087, 12.307783541284557, 7.50445704526741, 29.616541216301172, 55.09781201864526, 94.66512207653484, 110.575357565956, 48.271263955658476, 9.720675777040794, 103.86476092634099, 73.46706209546234, 76.27141356391415, 58.52095384025741, 10.03599677996438, 2.3494489761896404, 113.63264565941311, 79.59510623134672, 117.39312780238465, 107.72157719199545, 33.24824528819315, 84.14785802045677, 117.45982169590918, 75.56351797366193, 3.8851371521499836, 21.474011466382642, 54.03461798084935, 80.05372924138568, 82.93318165564455, 7.3258818056617825, 38.24834496999896, 4.551487795925668, 45.80068964151658, 121.14774297893655, 102.04721123819151, 19.649730728336515, 127.25233255894342, 36.90861648471872, 51.701933679847706, 36.47892203131234, 16.96192293482337, 34.05355468948644, 78.84277432025074, 71.92453403063305, 73.72679939356648, 16.46012298725128, 67.05975718791353, 96.85586532937867, 76.06247915571817, 84.59025935798881, 36.94948862311884, 66.4285045451389, 19.684415571507355, 43.08399484632591, 121.80480695955029, 101.04641394752306, 127.80610974091825, 96.38042642274947, 31.308216944053324, 122.48143976013517, 102.44098203234688, 99.35495236851585, 30.740728503963396, 106.16217215860134, 29.23168486685862, 51.83181072373858, 57.377614848718274, 71.60233178750724, 89.35736833443818, 43.84451894736371, 61.76177507278357, 53.478362832313515, 134.9982991245862, 52.25686061532778, 105.4195192856677, 26.162900958838808, 28.48942833889613, 108.05259553867432])
 
 
 
 
-#= Fonction de génération pseudo-aléatoire
-On va considérer les différents sites décrits dans la thèse
-Puis générer aléatoirement les w, energy_cost, reward
-=#
-function random_generation()
-    Random.seed!()
 
-    #=
-        Description :
-        J'ai pris les sites de la thèse, avec un dictionnaire (clé : nom du site, exemple : S1)
-        Valeur : un tuple (a, b) avec a une liste des paramètres non array et le b les parametres array
-        pour a : [t_max, delta, delta_min, delta_max, p_max, b_max, b_min, discharge_min, discharge_max, p_B, p_TSO]
-        pour b : [[w], [energy_cost], [reward]]
-    =#
-
-    # Represente le nombre d'instances "satisfaisantes" trouvées
-
-    counter = 0
-    w = Float64[]   
-    energy_cost = Float64[]
-    reward = Float64[]
-
-
-    
-
-    #TODO rajouter les autres sites
-    # Discharge precision mis à 1%
-    sites = Dict(
-        "S1"=>([96, 15, 1, 2, 11.79, 39.26, 19.63, 0.538, 5.38, 2.34, 1.965], [[], [], []]),
-        "S2"=>([96, 15, 1, 2, 1.41, 2.35, 1.175, 0.064, 0.64, 0.14, 0.235], [[], [], []]),
-        "S3"=>([96, 15, 1, 2, 5.46, 9.11, 4.555, 0.15, 2.49, 0.59, 0.91], [[], [], []]),
-        "S4"=>([96, 15, 1, 2, 31.89, 106.33, 53.165, 1.45, 14.5, 6.38, 5.315], [[], [], []])
-    )
-    for k in keys(sites)
-        counter = 0
-        while counter < 5
-            w = tableau_moyenne_controlee(Int(sites[k][1][1]), sites[k][1][5]/3; ecart_type_ratio = rand(0.05:0.01:0.2))
-            energy_cost = rand(Int(sites[k][1][1])) .* (200.0 - 1.0) .+ 1.0
-            reward = rand(Int(sites[k][1][1])) .* (140.0 - 1.0) .+ 1.0
-            v_array, a_array, start_id, end_id, ref_value, number_array_without_dummy = init_graph(
-                t_max = Int(sites[k][1][1]), delta = Int(sites[k][1][2]), delta_min = Int(sites[k][1][3]), delta_max = Int(sites[k][1][4]),
-                discharge_precision = 1, discharge_min = sites[k][1][8],
-                discharge_max = sites[k][1][9], p_TSO = sites[k][1][11], p_b = sites[k][1][10], p_max = sites[k][1][5],
-                b_max = sites[k][1][6], b_min = sites[k][1][7], w = w, energy_cost = energy_cost, reward = reward
-            )
-            counter = count_correlated_curtailments(vertices = v_array, arcs=a_array, t_max= Int(sites[k][1][1]), delta = Int(sites[k][1][2]), p_b =sites[k][1][10], p_max = sites[k][1][5], w = w, start_id = start_id, end_id = end_id)
-            println("Counter trouvé", counter)
-        end
-       
-        push!(sites[k][2][1], w)
-        push!(sites[k][2][2], energy_cost)
-        push!(sites[k][2][3], reward)
-        println("passed")
-
-    end
-
-    return sites
-
-end
 
 

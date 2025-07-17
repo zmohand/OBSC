@@ -1,3 +1,0 @@
-Description de l'instance de la thèse page 955
-
-t_max = 22
